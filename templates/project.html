@@ -1,0 +1,549 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — 요구사항 관리{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb mb-0" style="font-size:.85rem">
+    <li class="breadcrumb-item"><a href="/" class="text-decoration-none">프로젝트 목록</a></li>
+    <li class="breadcrumb-item active">{{ project.name }}</li>
+  </ol>
+</nav>
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h4 class="fw-bold mb-1">
+      <i class="bi bi-folder2-open me-2 text-warning"></i>{{ project.name }}
+    </h4>
+    {% if project.description %}
+    <p class="text-muted mb-0">{{ project.description }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- PDF 목록 카드 (메인) -->
+<div class="card mb-4">
+  <div class="card-header py-3 d-flex align-items-center justify-content-between">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-files text-primary"></i> PDF 목록
+      <span class="badge bg-secondary ms-1" id="pdf-count">{{ project.pdfs|length }}</span>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openUploadModal()">
+      <i class="bi bi-plus-lg me-1"></i>PDF 추가
+    </button>
+  </div>
+  <div id="pdf-list-wrap">
+    {% if project.pdfs %}
+    <ul class="list-group list-group-flush" id="pdf-list">
+      {% for pdf in project.pdfs|sort(attribute='created_at', reverse=True) %}
+      <li class="list-group-item px-4 py-3 d-flex justify-content-between align-items-center"
+          id="pdf-item-{{ pdf.id }}">
+        <div class="d-flex align-items-center gap-3" style="cursor:pointer"
+             onclick="location.href='/project/{{ project.id }}/pdf/{{ pdf.id }}'">
+          <i class="bi bi-file-earmark-pdf fs-4 text-danger"></i>
+          <div>
+            <div class="fw-semibold">{{ pdf.original_name }}</div>
+            <div class="text-muted small">
+              <span class="me-3"><i class="bi bi-list-check me-1"></i>요구사항 {{ pdf.requirements|length }}개</span>
+              <span><i class="bi bi-journal-text me-1"></i>목차 {{ pdf.toc_items|length }}개</span>
+              <span class="ms-3">{{ pdf.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="/project/{{ project.id }}/pdf/{{ pdf.id }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-right me-1"></i>열기
+          </a>
+          <button class="btn btn-outline-danger btn-sm" onclick="deletePdf({{ pdf.id }}, '{{ pdf.original_name }}')">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty-state py-5" id="pdf-empty">
+      <i class="bi bi-inbox"></i>
+      <div class="mt-2">아직 업로드된 PDF가 없습니다</div>
+      <button class="btn btn-primary btn-sm mt-3" onclick="openUploadModal()">
+        <i class="bi bi-plus-lg me-1"></i>첫 PDF 추가하기
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 첨부파일 카드 -->
+<div class="card" id="attach-card">
+  <div class="card-header py-3 d-flex align-items-center justify-content-between">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-paperclip text-primary"></i> 첨부파일
+      <span class="badge bg-secondary ms-1" id="attach-count">0</span>
+    </div>
+    <button class="btn btn-outline-primary btn-sm" onclick="openAttachModal()">
+      <i class="bi bi-upload me-1"></i>첨부파일 등록
+    </button>
+  </div>
+  <div id="attach-list-wrap">
+    <div class="py-4 text-center text-muted small" id="attach-loading">
+      <i class="bi bi-hourglass me-1"></i>불러오는 중...
+    </div>
+  </div>
+</div>
+
+<!-- ── PDF 업로드 모달 ──────────────────────────────────────────── -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-cloud-upload me-2 text-primary"></i>PDF 업로드 및 자동 추출</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" id="upload-modal-close"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div id="drop-zone"
+             class="rounded-3 d-flex flex-column align-items-center justify-content-center py-4 mb-3"
+             style="border:2px dashed #cbd5e1;cursor:pointer;transition:background .2s,border-color .2s;"
+             onclick="document.getElementById('fileInput').click()">
+          <i class="bi bi-file-earmark-arrow-up fs-2 text-muted mb-1"></i>
+          <div class="fw-semibold text-muted small">클릭하거나 PDF를 드래그하세요</div>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf" class="d-none">
+
+        <div id="selected-file" class="d-none alert alert-info py-2 mb-3">
+          <i class="bi bi-file-earmark-pdf me-2 text-danger"></i>
+          <span id="file-name"></span>
+        </div>
+
+        <!-- Progress -->
+        <div id="progress-section" class="d-none mt-2">
+          <div class="d-flex justify-content-between mb-1">
+            <span id="progress-msg" class="fw-semibold text-primary small"></span>
+            <span class="text-muted small d-flex gap-2">
+              <span id="step-elapsed" class="text-warning"></span>
+              <span id="progress-pct"></span>
+            </span>
+          </div>
+          <div class="progress mb-3" style="height:7px;border-radius:8px;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width:0%;transition:width .4s ease;border-radius:8px;"></div>
+          </div>
+          <ul id="step-list" class="list-unstyled mb-0" style="font-size:.83rem">
+            <li id="step-1" class="text-muted py-1"><i class="bi bi-circle me-2"></i>Gemini API 연결</li>
+            <li id="step-2" class="text-muted py-1"><i class="bi bi-circle me-2"></i>PDF 파일 업로드</li>
+            <li id="step-3" class="text-muted py-1"><i class="bi bi-circle me-2"></i>요구사항 추출</li>
+            <li id="step-4" class="text-muted py-1"><i class="bi bi-circle me-2"></i>목차 구조 추출</li>
+            <li id="step-5" class="text-muted py-1"><i class="bi bi-circle me-2"></i>사업 정보 추출</li>
+            <li id="step-6" class="text-muted py-1"><i class="bi bi-circle me-2"></i>데이터베이스 저장</li>
+            <li id="step-7" class="text-muted py-1"><i class="bi bi-circle me-2"></i>완료</li>
+          </ul>
+        </div>
+
+        <div id="result-wrap" class="d-none mt-3"></div>
+      </div>
+      <div class="modal-footer" id="upload-modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+        <button id="btn-upload" class="btn btn-primary" disabled>
+          <i class="bi bi-magic me-1"></i>Gemini로 자동 추출
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 첨부파일 등록 모달 ───────────────────────────────────────── -->
+<div class="modal fade" id="attachModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-paperclip me-2 text-primary"></i>첨부파일 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 종류 선택 -->
+        <div class="mb-4">
+          <div class="form-label fw-semibold mb-2">종류</div>
+          <div class="d-flex gap-2">
+            <div class="attach-pick-btn active" data-cat="presentation" onclick="pickCat(this)">
+              <i class="bi bi-easel2 mb-1" style="font-size:1.3rem"></i>
+              <span>발표자료</span>
+            </div>
+            <div class="attach-pick-btn" data-cat="proposal" onclick="pickCat(this)">
+              <i class="bi bi-file-earmark-text mb-1" style="font-size:1.3rem"></i>
+              <span>제안서</span>
+            </div>
+          </div>
+        </div>
+        <!-- 원본/사본 선택 -->
+        <div class="mb-4">
+          <div class="form-label fw-semibold mb-2">구분</div>
+          <div class="d-flex gap-2">
+            <div class="attach-pick-btn active" data-kind="original" onclick="pickKind(this)">
+              <i class="bi bi-bookmark-star mb-1" style="font-size:1.3rem"></i>
+              <span>원본</span>
+            </div>
+            <div class="attach-pick-btn" data-kind="copy" onclick="pickKind(this)">
+              <i class="bi bi-copy mb-1" style="font-size:1.3rem"></i>
+              <span>사본</span>
+            </div>
+          </div>
+        </div>
+        <!-- 파일 선택 -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">파일 선택</label>
+          <input type="file" id="attach-file-input" class="form-control form-control-sm">
+        </div>
+        <div id="attach-overwrite-warn" class="alert alert-warning py-2 small d-none">
+          <i class="bi bi-exclamation-triangle me-1"></i>이미 등록된 파일이 있습니다. 업로드하면 교체됩니다.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="attach-submit-btn" onclick="submitAttach()">
+          <i class="bi bi-upload me-1"></i>업로드
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const PROJECT_ID = {{ project.id }};
+const TOTAL_STEPS = 7;
+
+// ── PDF 업로드 ────────────────────────────────────────────────────────────────
+const fileInput  = document.getElementById('fileInput');
+const dropZone   = document.getElementById('drop-zone');
+const btnUpload  = document.getElementById('btn-upload');
+const selFile    = document.getElementById('selected-file');
+const fileNameEl = document.getElementById('file-name');
+const progSec    = document.getElementById('progress-section');
+const progMsg    = document.getElementById('progress-msg');
+const progPct    = document.getElementById('progress-pct');
+const progBar    = document.getElementById('progress-bar');
+const resultWrap = document.getElementById('result-wrap');
+let chosenFile   = null;
+let uploadModal, attachModal;
+
+document.addEventListener('DOMContentLoaded', () => {
+  uploadModal = new bootstrap.Modal(document.getElementById('uploadModal'));
+  attachModal = new bootstrap.Modal(document.getElementById('attachModal'));
+  // 모달 닫힐 때 업로드 중이 아니면 폼 초기화
+  document.getElementById('uploadModal').addEventListener('hidden.bs.modal', () => {
+    if (!progSec.classList.contains('d-none')) return; // 진행 중이면 유지
+    resetUploadForm();
+  });
+});
+
+function openUploadModal() { uploadModal.show(); }
+
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) selectFile(fileInput.files[0]); });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.background='#eff6ff'; dropZone.style.borderColor='#3b82f6'; });
+dropZone.addEventListener('dragleave', () => resetDrop());
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); resetDrop();
+  const f = e.dataTransfer.files[0];
+  f && f.name.toLowerCase().endsWith('.pdf') ? selectFile(f) : showResult('error', 'PDF 파일만 가능합니다.');
+});
+function resetDrop() { dropZone.style.background = ''; dropZone.style.borderColor = '#cbd5e1'; }
+function selectFile(f) {
+  chosenFile = f; fileNameEl.textContent = f.name;
+  selFile.classList.remove('d-none'); btnUpload.disabled = false;
+  resultWrap.classList.add('d-none');
+}
+function resetUploadForm() {
+  chosenFile = null; fileInput.value = '';
+  selFile.classList.add('d-none');
+  btnUpload.disabled = true;
+  progSec.classList.add('d-none');
+  resultWrap.classList.add('d-none');
+  resetSteps();
+}
+
+btnUpload.addEventListener('click', async () => {
+  if (!chosenFile) return;
+  btnUpload.disabled = true;
+  progSec.classList.remove('d-none');
+  resultWrap.classList.add('d-none');
+  // 모달 닫기 버튼 숨김 (추출 중)
+  document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = true;
+  resetSteps(); setStep(0, '업로드 준비 중...');
+  const fd = new FormData();
+  fd.append('file', chosenFile);
+  try {
+    const res = await fetch(`/project/${PROJECT_ID}/upload`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { showResult('error', data.error); btnUpload.disabled = false; return; }
+    listenProgress(data.task_id);
+  } catch (e) {
+    showResult('error', '업로드 실패: ' + e.message);
+    btnUpload.disabled = false;
+  }
+});
+
+function listenProgress(taskId) {
+  const es = new EventSource(`/upload/progress/${taskId}`);
+  es.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'keepalive') return;
+    if (msg.type === 'progress') {
+      setStep(msg.step, msg.msg);
+    } else if (msg.type === 'done') {
+      stopElapsedTimer();
+      setStep(TOTAL_STEPS, msg.msg);
+      progBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+      progBar.classList.add('bg-success');
+      showResult('success', `✅ ${msg.msg}`);
+      es.close();
+      btnUpload.disabled = false;
+      document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = false;
+      chosenFile = null; fileInput.value = ''; selFile.classList.add('d-none');
+      if (msg.pdf_id) addPdfToList(msg.pdf_id, msg.req_count, msg.toc_count);
+    } else if (msg.type === 'error') {
+      stopElapsedTimer();
+      progBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+      progBar.classList.add('bg-danger');
+      showResult('error', '❌ ' + msg.msg);
+      es.close();
+      btnUpload.disabled = false;
+      document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = false;
+    }
+  };
+}
+
+function addPdfToList(pdfId, reqCount, tocCount) {
+  document.getElementById('pdf-empty')?.remove();
+  let ul = document.getElementById('pdf-list');
+  if (!ul) {
+    ul = document.createElement('ul');
+    ul.className = 'list-group list-group-flush';
+    ul.id = 'pdf-list';
+    document.getElementById('pdf-list-wrap').appendChild(ul);
+  }
+  const name = fileNameEl.textContent || 'document.pdf';
+  const li = document.createElement('li');
+  li.className = 'list-group-item px-4 py-3 d-flex justify-content-between align-items-center';
+  li.id = `pdf-item-${pdfId}`;
+  li.innerHTML = `
+    <div class="d-flex align-items-center gap-3" style="cursor:pointer"
+         onclick="location.href='/project/${PROJECT_ID}/pdf/${pdfId}'">
+      <i class="bi bi-file-earmark-pdf fs-4 text-danger"></i>
+      <div>
+        <div class="fw-semibold">${name}</div>
+        <div class="text-muted small">
+          <span class="me-3"><i class="bi bi-list-check me-1"></i>요구사항 ${reqCount}개</span>
+          <span><i class="bi bi-journal-text me-1"></i>목차 ${tocCount}개</span>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/project/${PROJECT_ID}/pdf/${pdfId}" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-right me-1"></i>열기</a>
+      <button class="btn btn-outline-danger btn-sm" onclick="deletePdf(${pdfId}, '...')"><i class="bi bi-trash"></i></button>
+    </div>`;
+  ul.insertBefore(li, ul.firstChild);
+  const cnt = document.getElementById('pdf-count');
+  if (cnt) cnt.textContent = parseInt(cnt.textContent || '0') + 1;
+}
+
+async function deletePdf(id, name) {
+  if (!confirm(`"${name}" PDF를 삭제하시겠습니까?\n요구사항과 목차도 함께 삭제됩니다.`)) return;
+  const res = await fetch(`/api/pdf/${id}`, { method: 'DELETE' });
+  if ((await res.json()).success) document.getElementById(`pdf-item-${id}`)?.remove();
+}
+
+let _elapsedTimer = null, _stepStart = null;
+function startElapsedTimer() {
+  clearInterval(_elapsedTimer); _stepStart = Date.now();
+  const el = document.getElementById('step-elapsed');
+  _elapsedTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - _stepStart) / 1000);
+    el.textContent = sec > 0 ? `${sec}초 경과` : '';
+  }, 1000);
+}
+function stopElapsedTimer() {
+  clearInterval(_elapsedTimer); _elapsedTimer = null;
+  document.getElementById('step-elapsed').textContent = '';
+}
+function setStep(step, msg) {
+  const pct = Math.min(Math.round((step / TOTAL_STEPS) * 100), 100);
+  progBar.style.width = pct + '%';
+  progMsg.textContent = msg; progPct.textContent = pct + '%';
+  startElapsedTimer();
+  for (let i = 1; i <= TOTAL_STEPS; i++) {
+    const el = document.getElementById(`step-${i}`); if (!el) continue;
+    const ic = el.querySelector('i');
+    if (i < step)       { el.className = 'text-success py-1'; ic.className = 'bi bi-check-circle-fill me-2 text-success'; }
+    else if (i === step) { el.className = 'text-primary fw-semibold py-1'; ic.className = 'bi bi-arrow-right-circle-fill me-2 text-primary'; }
+    else                 { el.className = 'text-muted py-1'; ic.className = 'bi bi-circle me-2'; }
+  }
+}
+function resetSteps() {
+  stopElapsedTimer();
+  progBar.style.width = '0%';
+  progBar.classList.remove('bg-success', 'bg-danger');
+  progBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+  for (let i = 1; i <= TOTAL_STEPS; i++) {
+    const el = document.getElementById(`step-${i}`);
+    if (el) { el.className = 'text-muted py-1'; el.querySelector('i').className = 'bi bi-circle me-2'; }
+  }
+}
+function showResult(type, msg) {
+  resultWrap.classList.remove('d-none');
+  resultWrap.innerHTML = `<div class="alert alert-${type === 'success' ? 'success' : 'danger'} py-2">${msg}</div>`;
+}
+
+// ── 첨부파일 ─────────────────────────────────────────────────────────────────
+const ATTACH_META = {
+  presentation_original: { cat: '발표자료', kind: '원본',  icon: 'bi-easel2',             color: '#3b82f6' },
+  presentation_copy:     { cat: '발표자료', kind: '사본',  icon: 'bi-easel2',             color: '#93c5fd' },
+  proposal_original:     { cat: '제안서',   kind: '원본',  icon: 'bi-file-earmark-text',  color: '#8b5cf6' },
+  proposal_copy:         { cat: '제안서',   kind: '사본',  icon: 'bi-file-earmark-text',  color: '#c4b5fd' },
+};
+
+let attachData = {};
+let selectedCat  = 'presentation';
+let selectedKind = 'original';
+
+async function loadAttachments() {
+  const res = await fetch(`/api/project/${PROJECT_ID}/attachments`);
+  attachData = await res.json();
+  renderAttachList();
+}
+
+function renderAttachList() {
+  const wrap = document.getElementById('attach-list-wrap');
+  const filled = Object.entries(attachData).filter(([, v]) => v);
+  document.getElementById('attach-count').textContent = filled.length;
+
+  if (!filled.length) {
+    wrap.innerHTML = `
+      <div class="empty-state py-4">
+        <i class="bi bi-paperclip" style="font-size:1.8rem"></i>
+        <div class="mt-2 text-muted small">등록된 첨부파일이 없습니다</div>
+      </div>`;
+    return;
+  }
+
+  const order = ['presentation_original','presentation_copy','proposal_original','proposal_copy'];
+  wrap.innerHTML = `<ul class="list-group list-group-flush">` +
+    order.filter(k => attachData[k]).map(k => {
+      const att = attachData[k];
+      const m   = ATTACH_META[k];
+      return `
+      <li class="list-group-item px-4 py-3 d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+          <i class="bi ${m.icon}" style="color:${m.color};font-size:1.2rem"></i>
+          <div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-semibold" style="font-size:.88rem">${m.cat}</span>
+              <span class="badge rounded-pill" style="background:${m.color}20;color:${m.color};font-size:.72rem">${m.kind}</span>
+            </div>
+            <div class="text-muted small text-truncate" style="max-width:320px" title="${escHtml(att.original_name)}">${escHtml(att.original_name)}</div>
+            <div class="text-muted" style="font-size:.73rem">${att.uploaded_at}</div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="/api/project/${PROJECT_ID}/attachment/${k}/file"
+             class="btn btn-outline-primary btn-sm"><i class="bi bi-download me-1"></i>다운로드</a>
+          <button class="btn btn-outline-secondary btn-sm" title="교체"
+                  onclick="openAttachModal('${k}')"><i class="bi bi-arrow-repeat"></i></button>
+          <button class="btn btn-outline-danger btn-sm"
+                  onclick="deleteAttachment('${k}')"><i class="bi bi-trash"></i></button>
+        </div>
+      </li>`;
+    }).join('') + `</ul>`;
+}
+
+function openAttachModal(presetSlot) {
+  // 선택 초기화
+  selectedCat  = 'presentation';
+  selectedKind = 'original';
+  document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+  document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedKind));
+  document.getElementById('attach-file-input').value = '';
+  document.getElementById('attach-overwrite-warn').classList.add('d-none');
+
+  if (presetSlot) {
+    const m = ATTACH_META[presetSlot];
+    const catMap  = { '발표자료': 'presentation', '제안서': 'proposal' };
+    const kindMap = { '원본': 'original', '사본': 'copy' };
+    selectedCat  = catMap[m.cat]  || 'presentation';
+    selectedKind = kindMap[m.kind] || 'original';
+    document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+    document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedKind));
+  }
+  updateOverwriteWarn();
+  attachModal.show();
+}
+
+function pickCat(el) {
+  document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedCat = el.dataset.cat;
+  updateOverwriteWarn();
+}
+function pickKind(el) {
+  document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedKind = el.dataset.kind;
+  updateOverwriteWarn();
+}
+function updateOverwriteWarn() {
+  const slot = `${selectedCat}_${selectedKind}`;
+  const warn = document.getElementById('attach-overwrite-warn');
+  warn.classList.toggle('d-none', !attachData[slot]);
+}
+
+async function submitAttach() {
+  const file = document.getElementById('attach-file-input').files[0];
+  if (!file) { alert('파일을 선택하세요.'); return; }
+  const slot = `${selectedCat}_${selectedKind}`;
+  const btn  = document.getElementById('attach-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업로드 중...';
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'POST', body: fd });
+  if (res.ok) {
+    attachData[slot] = await res.json();
+    attachModal.hide();
+    renderAttachList();
+  } else {
+    alert('업로드에 실패했습니다.');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
+}
+
+async function deleteAttachment(slot) {
+  if (!confirm('첨부파일을 삭제하시겠습니까?')) return;
+  await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'DELETE' });
+  attachData[slot] = null;
+  renderAttachList();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadAttachments();
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.attach-pick-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: 12px 16px; border-radius: 10px; cursor: pointer;
+  border: 2px solid #e2e8f0; background: #fff; color: #64748b;
+  font-size: .82rem; font-weight: 500; transition: all .15s; text-align: center;
+  user-select: none;
+}
+.attach-pick-btn:hover { border-color: #94a3b8; background: #f8fafc; }
+.attach-pick-btn.active {
+  border-color: #3b82f6; background: #eff6ff; color: #1d4ed8;
+}
+</style>
+{% endblock %}

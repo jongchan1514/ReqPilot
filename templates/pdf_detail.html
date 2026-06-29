@@ -1,0 +1,1937 @@
+{% extends "base.html" %}
+{% block title %}{{ pdf.original_name }} — {{ project.name }}{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb mb-0" style="font-size:.85rem">
+    <li class="breadcrumb-item"><a href="/" class="text-decoration-none">프로젝트 목록</a></li>
+    <li class="breadcrumb-item active text-truncate" style="max-width:400px">{{ pdf.original_name }}</li>
+  </ol>
+</nav>
+
+<!-- Header -->
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-file-earmark-pdf fs-2 text-danger"></i>
+    <div>
+      <h5 class="fw-bold mb-0">{{ pdf.original_name }}</h5>
+      <div class="text-muted small">
+        업로드: {{ pdf.created_at.strftime('%Y-%m-%d %H:%M') }} &nbsp;·&nbsp;
+        요구사항 <strong>{{ pdf.requirements|length }}</strong>개 &nbsp;·&nbsp;
+        목차 <strong>{{ pdf.toc_items|length }}</strong>개
+      </div>
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    {% if pdf.saved_filename %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="openPdfPanel({{ pdf.id }}, '{{ pdf.original_name }}')">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF 원본 보기
+    </button>
+    {% endif %}
+    <button class="btn btn-outline-primary btn-sm" onclick="openUploadModal()">
+      <i class="bi bi-plus-lg me-1"></i>PDF 추가
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" onclick="openAttachManageModal()">
+      <i class="bi bi-paperclip me-1"></i>첨부파일
+      <span id="attach-badge" class="badge bg-secondary ms-1" style="font-size:.7rem">0</span>
+    </button>
+  </div>
+</div>
+
+<!-- Business Info Card -->
+<div id="biz-card" class="card mb-4 d-none">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-building me-2"></i>사업 정보</span>
+    <button class="btn btn-outline-secondary btn-sm" id="btn-edit-biz">
+      <i class="bi bi-pencil me-1"></i>편집
+    </button>
+  </div>
+  <div class="card-body" id="biz-view">
+    <div class="row g-3" id="biz-fields"></div>
+  </div>
+  <!-- Edit form (hidden by default) -->
+  <div class="card-body d-none" id="biz-form">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">사업명</label>
+        <input id="bf-name" type="text" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">사업비</label>
+        <input id="bf-cost" type="text" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">사업 기간</label>
+        <input id="bf-period" type="text" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">발주기관</label>
+        <input id="bf-client" type="text" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">수행기관</label>
+        <input id="bf-contractor" type="text" class="form-control">
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">사업 개요</label>
+        <textarea id="bf-overview" class="form-control" rows="4"></textarea>
+      </div>
+    </div>
+    <div class="mt-3 d-flex gap-2">
+      <button class="btn btn-primary btn-sm" id="btn-biz-save">저장</button>
+      <button class="btn btn-secondary btn-sm" id="btn-biz-cancel">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-0" id="mainTab">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-req">
+      <i class="bi bi-list-check me-1"></i>요구사항
+      <span class="badge bg-secondary ms-1" id="badge-req">{{ pdf.requirements|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-toc">
+      <i class="bi bi-journal-text me-1"></i>목차
+      <span class="badge bg-secondary ms-1" id="badge-toc">{{ pdf.toc_items|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-matrix" id="tab-matrix-btn">
+      <i class="bi bi-diagram-3 me-1"></i>추적 매트릭스
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ── 요구사항 ────────────────────────────────────────────────── -->
+  <div class="tab-pane fade show active" id="tab-req">
+    <div class="card" style="border-radius:0 12px 12px 12px;">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check me-2"></i>요구사항 목록</span>
+        <input id="req-search" type="text" class="form-control form-control-sm"
+               placeholder="검색..." style="width:200px">
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th style="width:44px">#</th>
+              <th style="width:140px">고유번호</th>
+              <th>명칭</th>
+              <th style="width:100px">액션</th>
+            </tr>
+          </thead>
+          <tbody id="req-tbody">
+            <tr><td colspan="4" class="empty-state"><i class="bi bi-hourglass"></i>불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 목차 ──────────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tab-toc">
+    <div class="card" style="border-radius:0 12px 12px 12px;">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-journal-text me-2"></i>목차 관리</span>
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small fw-normal">이름 클릭 → 바로 수정 &nbsp;·&nbsp; 연필 → 상세 편집</span>
+          <button class="btn btn-outline-secondary btn-sm" onclick="normalizeTocOrder()" title="중복 섹션 정리">
+            <i class="bi bi-sort-down me-1"></i>순서 정리
+          </button>
+        </div>
+      </div>
+      <!-- 필터 바 -->
+      <div class="toc-filter-bar">
+        <i class="bi bi-funnel text-secondary" style="font-size:.85rem"></i>
+        <div class="toc-filter-group">
+          <button class="toc-filter-btn active" data-filter="" onclick="setTocFilter('')">전체</button>
+          <button class="toc-filter-btn" data-filter="신규" onclick="setTocFilter('신규')"><span class="tfc-dot"></span>신규</button>
+          <button class="toc-filter-btn" data-filter="수정필요" onclick="setTocFilter('수정필요')"><span class="tfc-dot"></span>수정필요</button>
+          <button class="toc-filter-btn" data-filter="작업중" onclick="setTocFilter('작업중')"><span class="tfc-dot"></span>작업중</button>
+          <button class="toc-filter-btn" data-filter="완료" onclick="setTocFilter('완료')"><span class="tfc-dot"></span>완료</button>
+        </div>
+        <span id="toc-filter-count" class="toc-filter-count-badge"></span>
+        <div id="toc-page-stats" class="ms-auto d-flex align-items-center gap-1"
+             style="font-size:.75rem;color:#64748b;white-space:nowrap"></div>
+      </div>
+      <div class="card-body p-2" id="toc-tree">
+        <div class="empty-state"><i class="bi bi-hourglass"></i>불러오는 중...</div>
+      </div>
+      <!-- 빠른 추가 -->
+      <div class="card-footer bg-white border-top px-3 py-2">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <select id="qa-level" class="form-select form-select-sm" style="width:90px;flex-shrink:0">
+            <option value="1">1단계</option>
+            <option value="2">2단계</option>
+            <option value="3">3단계</option>
+          </select>
+          <select id="qa-d1" class="form-select form-select-sm d-none" style="width:160px;flex-shrink:0"
+                  title="상위 1단계 섹션"></select>
+          <select id="qa-d2" class="form-select form-select-sm d-none" style="width:160px;flex-shrink:0"
+                  title="상위 2단계 항목"></select>
+          <div class="d-flex gap-2 flex-grow-1" style="min-width:0">
+            <input id="qa-name" type="text" class="form-control form-control-sm flex-grow-1"
+                   placeholder="항목명 입력 후 Enter 또는 + 클릭">
+            <button class="btn btn-primary btn-sm px-3" onclick="quickAddToc()" style="flex-shrink:0">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 추적 매트릭스 ──────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tab-matrix">
+    <div class="card" style="border-radius:0 12px 12px 12px;">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-diagram-3 me-2"></i>요구사항 추적 매트릭스</span>
+        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+          <div class="btn-group btn-group-sm" role="group" aria-label="매트릭스 보기 방식">
+            <button type="button" class="btn btn-primary" id="matrix-view-toc"
+                    onclick="setMatrixView('toc')">
+              <i class="bi bi-journal-text me-1"></i>목차 기준
+            </button>
+            <button type="button" class="btn btn-outline-primary" id="matrix-view-req"
+                    onclick="setMatrixView('requirement')">
+              <i class="bi bi-list-check me-1"></i>요구사항 기준
+            </button>
+          </div>
+          <div id="matrix-stats" class="d-flex gap-2"></div>
+        </div>
+      </div>
+      <div class="card-body" id="matrix-body">
+        <div class="empty-state"><i class="bi bi-hourglass"></i>탭을 클릭하면 로드됩니다.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- 첨부파일 관리 모달 -->
+<div class="modal fade" id="attachManageModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-paperclip me-2 text-primary"></i>첨부파일 관리</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="attach-manage-body">
+        <div class="py-4 text-center text-muted small">불러오는 중...</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="openAttachModal()">
+          <i class="bi bi-upload me-1"></i>파일 등록
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 첨부파일 등록 모달 -->
+<div class="modal fade" id="attachModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-2 text-primary"></i>첨부파일 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-2 small">문서 종류</label>
+          <div class="d-flex gap-2">
+            <div class="attach-pick-btn flex-fill border rounded-3 p-3 text-center active" data-cat="presentation"
+                 onclick="pickCat(this)" style="cursor:pointer">
+              <i class="bi bi-easel2 d-block mb-1" style="font-size:1.4rem;color:#3b82f6"></i>
+              <div class="fw-semibold" style="font-size:.85rem">발표자료</div>
+            </div>
+            <div class="attach-pick-btn flex-fill border rounded-3 p-3 text-center" data-cat="proposal"
+                 onclick="pickCat(this)" style="cursor:pointer">
+              <i class="bi bi-file-earmark-text d-block mb-1" style="font-size:1.4rem;color:#10b981"></i>
+              <div class="fw-semibold" style="font-size:.85rem">제안서</div>
+            </div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-2 small">구분</label>
+          <div class="d-flex gap-2">
+            <div class="attach-pick-btn flex-fill border rounded-3 p-3 text-center active" data-kind="original"
+                 onclick="pickKind(this)" style="cursor:pointer">
+              <i class="bi bi-shield-check d-block mb-1" style="font-size:1.4rem;color:#8b5cf6"></i>
+              <div class="fw-semibold" style="font-size:.85rem">원본</div>
+            </div>
+            <div class="attach-pick-btn flex-fill border rounded-3 p-3 text-center" data-kind="copy"
+                 onclick="pickKind(this)" style="cursor:pointer">
+              <i class="bi bi-files d-block mb-1" style="font-size:1.4rem;color:#f59e0b"></i>
+              <div class="fw-semibold" style="font-size:.85rem">사본</div>
+            </div>
+          </div>
+        </div>
+        <div id="attach-overwrite-warn" class="d-none alert alert-warning py-2 small mb-3">
+          <i class="bi bi-exclamation-triangle me-1"></i>이미 등록된 파일이 있습니다. 업로드 시 교체됩니다.
+        </div>
+        <div>
+          <label class="form-label fw-semibold mb-1 small">파일 선택</label>
+          <input type="file" id="attach-file-input" class="form-control form-control-sm">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="attach-submit-btn" onclick="submitAttach()">
+          <i class="bi bi-upload me-1"></i>업로드
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PDF 업로드 모달 -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-plus me-2 text-primary"></i>PDF 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="drop-zone" class="border border-2 rounded-3 p-5 text-center mb-3"
+             style="cursor:pointer;border-color:#cbd5e1;border-style:dashed"
+             onclick="pdfFileInput.click()"
+             ondragover="event.preventDefault();this.style.borderColor='#3b82f6'"
+             ondragleave="this.style.borderColor='#cbd5e1'"
+             ondrop="event.preventDefault();this.style.borderColor='#cbd5e1';const f=event.dataTransfer.files[0];f&&f.name.toLowerCase().endsWith('.pdf')?selectPdfFile(f):alert('PDF 파일만 가능합니다.')">
+          <i class="bi bi-cloud-arrow-up text-primary" style="font-size:2.5rem"></i>
+          <div class="mt-2 fw-semibold">PDF 파일을 드래그하거나 클릭하여 선택</div>
+          <div class="text-muted small mt-1">PDF 파일만 허용</div>
+        </div>
+        <input type="file" id="pdfFileInput" accept=".pdf" class="d-none">
+        <div id="selected-file" class="d-none alert alert-info py-2 mb-3">
+          <i class="bi bi-file-earmark-pdf me-2 text-danger"></i>
+          <span id="file-name"></span>
+        </div>
+        <div id="progress-section" class="d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span id="progress-msg" class="small fw-semibold">처리 중...</span>
+            <span id="progress-pct" class="small text-muted">0%</span>
+          </div>
+          <div class="progress mb-3" style="height:6px">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="d-flex flex-column gap-1 small">
+            <div id="step-1" class="text-muted py-1"><i class="bi bi-circle me-2"></i>파일 업로드</div>
+            <div id="step-2" class="text-muted py-1"><i class="bi bi-circle me-2"></i>텍스트 추출</div>
+            <div id="step-3" class="text-muted py-1"><i class="bi bi-circle me-2"></i>목차 분석</div>
+            <div id="step-4" class="text-muted py-1"><i class="bi bi-circle me-2"></i>요구사항 추출</div>
+            <div id="step-5" class="text-muted py-1"><i class="bi bi-circle me-2"></i>데이터 처리</div>
+            <div id="step-6" class="text-muted py-1"><i class="bi bi-circle me-2"></i>저장</div>
+            <div id="step-7" class="text-muted py-1"><i class="bi bi-circle me-2"></i>완료</div>
+          </div>
+          <div id="step-elapsed" class="text-muted small mt-2"></div>
+        </div>
+        <div id="upload-result" class="d-none mt-2"></div>
+      </div>
+      <div class="modal-footer" id="upload-modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-upload" disabled>
+          <i class="bi bi-upload me-1"></i>업로드
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Requirement Edit Modal -->
+<div class="modal fade" id="reqModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">요구사항 편집</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="req-edit-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">고유번호</label>
+          <input id="req-edit-rid" type="text" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">명칭</label>
+          <input id="req-edit-name" type="text" class="form-control">
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold">세부내용</label>
+          <textarea id="req-edit-detail" class="form-control" rows="6"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="btn-req-save">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOC Modal -->
+<div class="modal fade" id="tocModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="toc-modal-title">목차 항목 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="toc-edit-id">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label fw-semibold">Depth 1</label>
+            <input id="m-d1" type="text" class="form-control">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Depth 2</label>
+            <input id="m-d2" type="text" class="form-control">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Depth 3</label>
+            <input id="m-d3" type="text" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">페이지번호</label>
+            <input id="m-page" type="text" class="form-control" placeholder="예) 23">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">작업상황</label>
+            <select id="m-status" class="form-select">
+              <option value="신규">신규</option>
+              <option value="수정필요">수정필요</option>
+              <option value="작업중">작업중</option>
+              <option value="완료">완료</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <label class="form-label fw-semibold mb-0">
+                요구사항번호 <span class="text-muted fw-normal small">(복수 선택 가능)</span>
+              </label>
+              <input type="text" class="form-control form-control-sm" id="m-req-search"
+                     placeholder="검색..." style="width:160px" oninput="filterReqPicker()">
+            </div>
+            <!-- 선택된 요구사항 태그 -->
+            <div id="m-reqs-tags" class="d-flex flex-wrap gap-1 mb-2" style="min-height:26px"></div>
+            <!-- 체크박스 트리 -->
+            <div style="border:1px solid #e2e8f0;border-radius:8px;max-height:210px;overflow-y:auto">
+              <div id="m-reqs-tree">
+                <div class="text-muted small text-center py-3">요구사항 로딩 중...</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">비고</label>
+            <textarea id="m-remarks" class="form-control" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="btn-toc-save">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 요구사항 → 목차 매핑 오프캔버스 -->
+<div class="offcanvas offcanvas-end" id="reqMapOffcanvas" tabindex="-1"
+     style="width:440px;display:flex;flex-direction:column">
+  <div class="offcanvas-header border-bottom py-3 flex-shrink-0">
+    <div>
+      <h6 class="offcanvas-title mb-1"><i class="bi bi-diagram-3 me-2 text-primary"></i>목차 매핑</h6>
+      <div class="text-muted" style="font-size:.8rem;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+           id="req-map-req-label">요구사항 선택 중...</div>
+    </div>
+    <button class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="border-bottom px-3 py-2 flex-shrink-0">
+    <input type="text" class="form-control form-control-sm" id="toc-map-search"
+           placeholder="목차 검색..." oninput="filterTocMapTree()">
+    <div class="d-flex align-items-center justify-content-between mt-2" style="font-size:.78rem">
+      <span class="text-muted" id="toc-map-checked-count">0개 선택됨</span>
+      <div class="d-flex gap-2">
+        <button class="btn btn-link btn-sm p-0 text-primary" style="font-size:.78rem"
+                onclick="tocMapSelectAll(true)">전체선택</button>
+        <button class="btn btn-link btn-sm p-0 text-secondary" style="font-size:.78rem"
+                onclick="tocMapSelectAll(false)">전체해제</button>
+      </div>
+    </div>
+  </div>
+  <div id="toc-map-tree" class="flex-grow-1" style="overflow-y:auto;padding:4px 0"></div>
+  <div class="border-top px-3 py-2 flex-shrink-0 d-flex gap-2">
+    <button class="btn btn-primary btn-sm flex-grow-1" onclick="applyReqMap()">
+      <i class="bi bi-check-lg me-1"></i>적용
+    </button>
+    <button class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="offcanvas">취소</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.attach-pick-btn {
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:12px 16px;border-radius:10px;cursor:pointer;
+  border:2px solid #e2e8f0;background:#fff;color:#64748b;
+  font-size:.82rem;font-weight:500;transition:all .15s;text-align:center;user-select:none;
+}
+.attach-pick-btn:hover{border-color:#94a3b8;background:#f8fafc;}
+.attach-pick-btn.active{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8;}
+
+/* 목차 넘버링 */
+.toc-num {
+  font-size:.75rem; font-weight:700; color:#94a3b8;
+  font-variant-numeric: tabular-nums;
+  min-width:28px; flex-shrink:0;
+}
+
+/* 요구사항 체크박스 트리 (모달 & 오프캔버스 공용) */
+.req-pick-group-hdr {
+  padding:5px 10px;background:#f8fafc;border-bottom:1px solid #e2e8f0;
+  font-size:.75rem;font-weight:700;color:#475569;position:sticky;top:0;z-index:1;
+  display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+}
+.req-pick-group-hdr:hover{background:#f0f9ff;}
+.req-pick-item {
+  display:flex;align-items:center;gap:8px;padding:5px 10px 5px 22px;
+  border-bottom:1px solid #f8fafc;font-size:.82rem;cursor:pointer;
+  transition:background .1s;
+}
+.req-pick-item:last-child{border-bottom:none;}
+.req-pick-item:hover{background:#f0f9ff;}
+.req-pick-item input[type=checkbox]{flex-shrink:0;cursor:pointer;}
+.req-pick-id {
+  background:#e0e7ff;color:#3730a3;border-radius:3px;padding:0 5px;
+  font-size:.7rem;font-weight:700;flex-shrink:0;min-width:64px;text-align:center;
+}
+.req-tag-chip {
+  display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1d4ed8;
+  border-radius:4px;padding:2px 7px;font-size:.73rem;font-weight:600;cursor:default;
+}
+.req-tag-chip .rm{cursor:pointer;font-size:.85rem;line-height:1;}
+.req-tag-chip .rm:hover{color:#991b1b;}
+
+/* 목차 매핑 트리 */
+.toc-map-section-hdr {
+  padding:6px 12px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;
+  font-size:.78rem;font-weight:700;color:#334155;
+  display:flex;align-items:center;gap:6px;position:sticky;top:0;z-index:1;
+}
+.toc-map-item {
+  display:flex;align-items:center;gap:8px;padding:5px 12px;
+  border-bottom:1px solid #f8fafc;font-size:.82rem;cursor:pointer;transition:background .1s;
+}
+.toc-map-item:last-child{border-bottom:none;}
+.toc-map-item:hover{background:#f0f9ff;}
+.toc-map-item input[type=checkbox]{flex-shrink:0;cursor:pointer;}
+.toc-map-depth2{padding-left:24px;}
+.toc-map-depth3{padding-left:40px;font-size:.8rem;color:#475569;}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+const PDF_ID = {{ pdf.id }};
+const PROJECT_ID = {{ project.id }};
+const PDF_NAME = {{ pdf.original_name | tojson }};
+
+let allReqs = [], allToc = [], tocFilter = '';
+let matrixLoaded = false;
+let matrixData = null;
+let matrixView = 'toc';
+let mReqsSelected = new Set();   // TOC 모달 선택 요구사항 IDs
+let reqMapReqId = null;          // 현재 매핑 중인 요구사항 ID
+let reqMapOffcanvasInst = null;  // Bootstrap offcanvas 인스턴스
+let reqMapCheckedTocIds = new Set();
+
+const reqModal = new bootstrap.Modal(document.getElementById('reqModal'));
+const tocModal = new bootstrap.Modal(document.getElementById('tocModal'));
+const STATUS_CLS = {'신규':'badge-신규','수정필요':'badge-수정필요','완료':'badge-완료','작업중':'badge-작업중'};
+reqMapOffcanvasInst = new bootstrap.Offcanvas(document.getElementById('reqMapOffcanvas'));
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function invalidateMatrix() {
+  matrixLoaded = false;
+  matrixData = null;
+}
+
+/* ─── Business Info ──────────────────────────────────────────── */
+async function loadBiz() {
+  const res = await fetch(`/api/pdf/${PDF_ID}/business_info`);
+  const data = await res.json();
+  if (!data) return;
+  document.getElementById('biz-card').classList.remove('d-none');
+  renderBizView(data);
+  fillBizForm(data);
+}
+function renderBizView(d) {
+  const LABELS = [
+    ['business_name','사업명'],['business_cost','사업비'],
+    ['business_period','사업 기간'],['client','발주기관'],['contractor','수행기관'],
+  ];
+  let html = LABELS.filter(([k]) => d[k]).map(([k,l]) =>
+    `<div class="col-md-4"><div class="text-muted small">${l}</div><div class="fw-semibold">${esc(d[k])}</div></div>`
+  ).join('');
+  if (d.overview) html += `<div class="col-12"><div class="text-muted small">사업 개요</div><div style="white-space:pre-wrap">${esc(d.overview)}</div></div>`;
+  if (d.extras && Object.keys(d.extras).length)
+    html += Object.entries(d.extras).map(([k,v]) =>
+      `<div class="col-md-4"><div class="text-muted small">${esc(k)}</div><div>${esc(String(v))}</div></div>`).join('');
+  document.getElementById('biz-fields').innerHTML = html || '<div class="col text-muted">추출된 사업 정보가 없습니다.</div>';
+}
+function fillBizForm(d) {
+  ['name','cost','period','client','contractor'].forEach(k =>
+    document.getElementById(`bf-${k}`).value = d[k==='name'?'business_name':k==='cost'?'business_cost':k==='period'?'business_period':k] || '');
+  document.getElementById('bf-overview').value = d.overview || '';
+}
+document.getElementById('btn-edit-biz').addEventListener('click', () => {
+  document.getElementById('biz-view').classList.add('d-none');
+  document.getElementById('biz-form').classList.remove('d-none');
+});
+document.getElementById('btn-biz-cancel').addEventListener('click', () => {
+  document.getElementById('biz-form').classList.add('d-none');
+  document.getElementById('biz-view').classList.remove('d-none');
+});
+document.getElementById('btn-biz-save').addEventListener('click', async () => {
+  const payload = {
+    business_name: document.getElementById('bf-name').value.trim(),
+    business_cost: document.getElementById('bf-cost').value.trim(),
+    business_period: document.getElementById('bf-period').value.trim(),
+    client: document.getElementById('bf-client').value.trim(),
+    contractor: document.getElementById('bf-contractor').value.trim(),
+    overview: document.getElementById('bf-overview').value.trim(),
+  };
+  await fetch(`/api/pdf/${PDF_ID}/business_info`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  renderBizView(payload);
+  document.getElementById('biz-form').classList.add('d-none');
+  document.getElementById('biz-view').classList.remove('d-none');
+});
+
+/* ─── Requirements ───────────────────────────────────────────── */
+async function loadReqs() {
+  const res = await fetch(`/api/pdf/${PDF_ID}/requirements`);
+  allReqs = await res.json();
+  renderReqs(allReqs);
+  buildReqOptions();
+}
+
+// 요구사항 타입 자동 감지 (DB에서 로드)
+let REQ_TYPE_RULES = [];
+
+async function loadReqTypeRules() {
+  const res = await fetch('/api/req-types');
+  REQ_TYPE_RULES = await res.json();
+}
+
+function detectReqType(reqId) {
+  const id = (reqId || '').toUpperCase();
+  for (const r of REQ_TYPE_RULES) {
+    if (id.startsWith(r.prefix.toUpperCase())) {
+      return { label: r.label, color: r.bg_color, text: r.text_color };
+    }
+  }
+  return null;
+}
+
+const reqCollapsed = new Set();
+
+function renderReqs(data) {
+  const tbody = document.getElementById('req-tbody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state"><i class="bi bi-inbox"></i>요구사항이 없습니다.</td></tr>';
+    document.getElementById('badge-req').textContent = 0;
+    return;
+  }
+
+  // 타입별 그룹핑 (순서 유지, 기타는 맨 뒤)
+  const groups = new Map();
+  data.forEach(r => {
+    const rtype = detectReqType(r.req_id);
+    const key = rtype ? rtype.label : '기타';
+    if (!groups.has(key)) groups.set(key, { rtype, items: [] });
+    groups.get(key).items.push(r);
+  });
+  if (groups.has('기타')) {
+    const misc = groups.get('기타');
+    groups.delete('기타');
+    groups.set('기타', misc);
+  }
+
+  let rows = '';
+  let globalIdx = 0;
+  groups.forEach(({ rtype, items }, key) => {
+    const collapsed = reqCollapsed.has(key);
+    const bg  = rtype?.color || '#f1f5f9';
+    const fg  = rtype?.text  || '#475569';
+    const chevron = collapsed ? 'bi-chevron-right' : 'bi-chevron-down';
+
+    // 그룹 헤더
+    rows += `
+    <tr class="req-group-hdr" style="cursor:pointer;background:${bg}" onclick="toggleReqGroup('${key.replace(/'/g,"\\'")}')">
+      <td colspan="4" style="padding:9px 14px;border-bottom:2px solid rgba(0,0,0,.06)">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi ${chevron}" style="color:${fg};font-size:.85rem"></i>
+          <span class="fw-bold" style="color:${fg}">${esc(key)}</span>
+          <span class="badge ms-1" style="background:${fg};color:#fff;font-size:.72rem">${items.length}</span>
+        </div>
+      </td>
+    </tr>`;
+
+    // 아이템 행
+    items.forEach(r => {
+      globalIdx++;
+      const hasDetail = (r.detail || '').trim().length > 0;
+      const hidden = collapsed ? ' d-none' : '';
+      rows += `
+    <tr class="req-row req-grp-${CSS.escape(key)}${hidden}">
+      <td class="text-muted align-middle">${globalIdx}</td>
+      <td class="align-middle"><code>${esc(r.req_id)}</code></td>
+      <td class="align-middle">${esc(r.req_name)}</td>
+      <td class="align-middle text-nowrap">
+        ${hasDetail ? `<button class="btn btn-outline-secondary btn-icon me-1" title="세부내용" onclick="toggleDetail(this,${r.id})"><i class="bi bi-chevron-down"></i></button>` : ''}
+        <button class="btn btn-outline-secondary btn-icon me-1" title="목차에 매핑" onclick="openReqMapPanel(${r.id})"><i class="bi bi-diagram-3"></i></button>
+        <button class="btn btn-outline-primary btn-icon me-1" onclick="openReqEdit(${r.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-icon" onclick="deleteReq(${r.id})"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>
+    <tr class="req-detail-row req-grp-${CSS.escape(key)} d-none" id="req-detail-${r.id}">
+      <td colspan="4" class="bg-light px-4 py-3">
+        <div style="white-space:pre-wrap;font-size:.85rem;line-height:1.6">${esc(r.detail)}</div>
+      </td>
+    </tr>`;
+    });
+  });
+
+  tbody.innerHTML = rows;
+  document.getElementById('badge-req').textContent = data.length;
+}
+
+function toggleReqGroup(key) {
+  if (reqCollapsed.has(key)) reqCollapsed.delete(key);
+  else reqCollapsed.add(key);
+  renderReqs(document.getElementById('req-search').value.trim()
+    ? allReqs.filter(r => {
+        const kw = document.getElementById('req-search').value.toLowerCase();
+        return r.req_id.toLowerCase().includes(kw) || r.req_name.toLowerCase().includes(kw) || (r.detail||'').toLowerCase().includes(kw);
+      })
+    : allReqs);
+}
+
+function toggleDetail(btn, id) {
+  const row = document.getElementById(`req-detail-${id}`);
+  const icon = btn.querySelector('i');
+  const hidden = row.classList.toggle('d-none');
+  icon.className = hidden ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+}
+
+document.getElementById('req-search').addEventListener('input', e => {
+  const kw = e.target.value.toLowerCase();
+  renderReqs(kw ? allReqs.filter(r =>
+    r.req_id.toLowerCase().includes(kw) ||
+    r.req_name.toLowerCase().includes(kw) ||
+    (r.detail||'').toLowerCase().includes(kw)
+  ) : allReqs);
+});
+
+function openReqEdit(id) {
+  const r = allReqs.find(x => x.id===id); if (!r) return;
+  document.getElementById('req-edit-id').value = r.id;
+  document.getElementById('req-edit-rid').value = r.req_id;
+  document.getElementById('req-edit-name').value = r.req_name;
+  document.getElementById('req-edit-detail').value = r.detail;
+  reqModal.show();
+}
+document.getElementById('btn-req-save').addEventListener('click', async () => {
+  const id = document.getElementById('req-edit-id').value;
+  await fetch(`/api/requirements/${id}`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      req_id: document.getElementById('req-edit-rid').value,
+      req_name: document.getElementById('req-edit-name').value,
+      detail: document.getElementById('req-edit-detail').value,
+    })
+  });
+  reqModal.hide(); loadReqs();
+});
+async function deleteReq(id) {
+  if (!confirm('이 요구사항을 삭제하시겠습니까?')) return;
+  await fetch(`/api/requirements/${id}`, {method:'DELETE'});
+  loadReqs();
+}
+
+/* ─── 요구사항 트리 피커 (TOC 모달 내 체크박스 트리) ──────────── */
+function buildReqOptions() {
+  renderReqPickerTree('');
+}
+
+function renderReqPickerTree(query) {
+  const wrap = document.getElementById('m-reqs-tree');
+  if (!allReqs.length) {
+    wrap.innerHTML = '<div class="text-muted small text-center py-3">요구사항이 없습니다.</div>';
+    return;
+  }
+  // 타입 그룹핑
+  const groups = new Map();
+  allReqs.forEach(r => {
+    const rt = detectReqType(r.req_id);
+    const key = rt ? rt.label : '기타';
+    if (!groups.has(key)) groups.set(key, { rt, items: [] });
+    groups.get(key).items.push(r);
+  });
+
+  const q = query.toLowerCase();
+  let html = '';
+  groups.forEach(({ rt, items }, key) => {
+    const filtered = q ? items.filter(r =>
+      r.req_id.toLowerCase().includes(q) || r.req_name.toLowerCase().includes(q)
+    ) : items;
+    if (!filtered.length) return;
+    const bg = rt?.color || '#f1f5f9';
+    const fg = rt?.text  || '#475569';
+    const selCount = filtered.filter(r => mReqsSelected.has(r.id)).length;
+    html += `<div class="req-pick-group-hdr" style="background:${bg};color:${fg}"
+                  onclick="togglePickGroup(this)">
+      <i class="bi bi-chevron-down" style="font-size:.72rem"></i>
+      <span>${esc(key)}</span>
+      <span style="background:${fg};color:#fff;border-radius:10px;padding:0 6px;font-size:.68rem;font-weight:700">${filtered.length}</span>
+      ${selCount ? `<span style="background:#3b82f6;color:#fff;border-radius:10px;padding:0 6px;font-size:.68rem;font-weight:700;margin-left:auto">${selCount} 선택</span>` : ''}
+    </div>
+    <div class="req-pick-group-body">`;
+    filtered.forEach(r => {
+      const chk = mReqsSelected.has(r.id) ? 'checked' : '';
+      html += `<label class="req-pick-item"
+               onclick="togglePickReq(${r.id},event)">
+        <input type="checkbox" class="form-check-input" value="${r.id}" ${chk}
+               onchange="onPickReqChange(${r.id},this)" onclick="event.stopPropagation()">
+        <span class="req-pick-id">${esc(r.req_id)}</span>
+        <span class="text-truncate" title="${esc(r.req_name)}">${esc(r.req_name)}</span>
+      </label>`;
+    });
+    html += '</div>';
+  });
+  wrap.innerHTML = html || '<div class="text-muted small text-center py-3">검색 결과 없음</div>';
+}
+
+function togglePickGroup(hdr) {
+  const body = hdr.nextElementSibling;
+  const hidden = body.classList.toggle('d-none');
+  const icon = hdr.querySelector('i');
+  icon.className = hidden ? 'bi bi-chevron-right' : 'bi bi-chevron-down';
+  icon.style.fontSize = '.72rem';
+}
+
+function togglePickReq(id, e) {
+  // label 클릭 시 체크박스 toggle
+  if (e.target.tagName === 'INPUT') return;
+  if (mReqsSelected.has(id)) mReqsSelected.delete(id);
+  else mReqsSelected.add(id);
+  renderReqPickerTree(document.getElementById('m-req-search').value);
+  updateReqTags();
+}
+
+function onPickReqChange(id, cb) {
+  if (cb.checked) mReqsSelected.add(id);
+  else mReqsSelected.delete(id);
+  updateReqTags();
+  // 그룹 선택 카운트 업데이트만 (전체 re-render 대신 가벼운 업데이트)
+  const hdr = cb.closest('.req-pick-group-body')?.previousElementSibling;
+  if (hdr) {
+    const spans = hdr.querySelectorAll('span');
+    const totalSpan = spans[1];
+    const total = parseInt(totalSpan?.textContent || '0');
+    let selSpan = hdr.querySelector('span[style*="3b82f6"]');
+    const selCount = [...hdr.nextElementSibling.querySelectorAll('input[type=checkbox]:checked')].length;
+    if (selCount > 0) {
+      if (!selSpan) {
+        selSpan = document.createElement('span');
+        selSpan.style.cssText = 'background:#3b82f6;color:#fff;border-radius:10px;padding:0 6px;font-size:.68rem;font-weight:700;margin-left:auto';
+        hdr.appendChild(selSpan);
+      }
+      selSpan.textContent = `${selCount} 선택`;
+    } else if (selSpan) selSpan.remove();
+  }
+}
+
+function filterReqPicker() {
+  renderReqPickerTree(document.getElementById('m-req-search').value);
+}
+
+function updateReqTags() {
+  const wrap = document.getElementById('m-reqs-tags');
+  wrap.innerHTML = [...mReqsSelected].map(id => {
+    const r = allReqs.find(x => x.id === id);
+    if (!r) return '';
+    return `<span class="req-tag-chip">
+      ${esc(r.req_id)}
+      <span class="rm" onclick="removePickReq(${r.id})">×</span>
+    </span>`;
+  }).join('');
+}
+
+function removePickReq(id) {
+  mReqsSelected.delete(id);
+  updateReqTags();
+  renderReqPickerTree(document.getElementById('m-req-search')?.value || '');
+}
+
+/* ─── TOC Tree ───────────────────────────────────────────────── */
+
+function tocDepthLevel(t) {
+  if (t.depth3) return 3;
+  if (t.depth2) return 2;
+  return 1;
+}
+
+function buildTocNumbering(sections) {
+  const numMap = {};
+  sections.forEach((sec, si) => {
+    const d1n = si + 1;
+    if (sec.hdrItem) numMap[sec.hdrItem.id] = `${d1n}`;
+    let d2n = 0, d3n = 0, lastD2 = null;
+    sec.children.forEach(t => {
+      if (t.depth2 && !t.depth3) {
+        d2n++; d3n = 0; lastD2 = t.depth2;
+        numMap[t.id] = `${d1n}.${d2n}`;
+      } else if (t.depth3) {
+        const d2 = t.depth2 || lastD2;
+        if (d2 !== lastD2) { d2n++; d3n = 0; lastD2 = d2; }
+        d3n++;
+        numMap[t.id] = `${d1n}.${d2n}.${d3n}`;
+      }
+    });
+  });
+  return numMap;
+}
+function tocLabel(t) {
+  if (t.depth3) return t.depth3;
+  if (t.depth2) return t.depth2;
+  return t.depth1;
+}
+function tocBreadcrumb(t) {
+  const parts = [];
+  if (t.depth1) parts.push(t.depth1);
+  if (t.depth2) parts.push(t.depth2);
+  if (t.depth3) parts.push(t.depth3);
+  return parts.slice(0, -1).map(p => esc(p)).join(' <i class="bi bi-chevron-right" style="font-size:.7rem"></i> ');
+}
+
+let tocSortable = null, tocSectionSortables = [];
+const tocCollapsed = new Set();
+
+async function loadToc() {
+  const res = await fetch(`/api/pdf/${PDF_ID}/toc`);
+  allToc = await res.json();
+  renderTocTree();
+  updateQaParentSelectors();
+}
+
+function buildTocSections() {
+  // Consecutive-run grouping: preserves DB order_index ordering exactly
+  const result = [];
+  let currentSec = null;
+
+  allToc.forEach(t => {
+    const d1 = t.depth1 || '(미분류)';
+    const isHeader = !t.depth2 && !t.depth3;
+
+    if (isHeader) {
+      currentSec = { depth1: d1, hdrItem: t, children: [] };
+      result.push(currentSec);
+    } else {
+      if (!currentSec || currentSec.depth1 !== d1) {
+        currentSec = { depth1: d1, hdrItem: null, children: [] };
+        result.push(currentSec);
+      }
+      currentSec.children.push(t);
+    }
+  });
+
+  // (미분류)를 맨 뒤로, 비어 있으면 제외
+  const misc = result.filter(s => s.depth1 === '(미분류)' && (s.hdrItem || s.children.length > 0));
+  const main = result.filter(s => s.depth1 !== '(미분류)');
+  return [...main, ...misc];
+}
+
+function calculateTocPageStats() {
+  const sections = buildTocSections();
+
+  // TOC 표시 순서대로 평탄화
+  const ordered = [];
+  sections.forEach(sec => {
+    if (sec.hdrItem) ordered.push(sec.hdrItem);
+    sec.children.forEach(t => ordered.push(t));
+  });
+
+  if (!ordered.length) return null;
+
+  const parsePn = t => { const n = parseInt(t.page_number); return (!isNaN(n) && n > 0) ? n : null; };
+
+  // 페이지 입력된 첫 번째 / 마지막 항목 위치 및 최소·최대 페이지
+  let firstIdx = -1, lastIdx = -1, minPn = Infinity, maxPn = -Infinity;
+  ordered.forEach((t, i) => {
+    const pn = parsePn(t);
+    if (pn !== null) {
+      if (firstIdx === -1) firstIdx = i;
+      lastIdx = i;
+      if (pn < minPn) minPn = pn;
+      if (pn > maxPn) maxPn = pn;
+    }
+  });
+
+  // 페이지 입력 전혀 없음 → 각 항목 1페이지
+  if (firstIdx === -1) {
+    return {
+      contentPages: ordered.length,
+      dividerPages: sections.length,
+      withDividers: ordered.length + sections.length,
+      withoutDividers: ordered.length,
+    };
+  }
+
+  // 첫 페이지 항목 이전에 있는 미입력 항목 (선행 항목)
+  const leading = ordered.slice(0, firstIdx).filter(t => parsePn(t) === null).length;
+
+  // 페이지 범위 (minPn 이상 maxPn 이하) — 범위 내 미입력 항목은 이미 포함됨
+  const rangePages = maxPn - minPn + 1;
+
+  // 마지막 페이지 항목 이후 미입력 항목 (후행 항목)
+  const trailing = ordered.slice(lastIdx + 1).filter(t => parsePn(t) === null).length;
+
+  const contentPages = leading + rangePages + trailing;
+  const dividerPages = sections.length;
+
+  return {
+    contentPages,
+    dividerPages,
+    withDividers: contentPages + dividerPages,
+    withoutDividers: contentPages,
+  };
+}
+
+function renderTocPageStats() {
+  const el = document.getElementById('toc-page-stats');
+  if (!el) return;
+  const s = calculateTocPageStats();
+  if (!s) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <i class="bi bi-file-earmark-text" style="font-size:.8rem"></i>
+    <span title="간지(${s.dividerPages}p) 미포함">
+      <span style="color:#1e293b;font-weight:600">${s.withoutDividers}p</span>
+    </span>
+    <span style="color:#cbd5e1">·</span>
+    <span title="간지(${s.dividerPages}p) 포함">
+      간지 포함 <span style="color:#1e293b;font-weight:600">${s.withDividers}p</span>
+    </span>
+    <span style="color:#cbd5e1;margin:0 2px">│</span>
+    <span style="color:#94a3b8">간지 ${s.dividerPages}p</span>`;
+}
+
+function setTocFilter(status) {
+  tocFilter = status;
+  document.querySelectorAll('.toc-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === status);
+  });
+  renderTocTree();
+}
+
+function renderTocTree() {
+  const container = document.getElementById('toc-tree');
+  if (!allToc.length) {
+    container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i>목차 항목이 없습니다.<br><small class="text-muted">아래 빠른 추가로 항목을 넣어보세요.</small></div>';
+    document.getElementById('badge-toc').textContent = 0;
+    return;
+  }
+
+  const sections = buildTocSections();
+  const numMap = buildTocNumbering(sections);
+  const isFiltered = !!tocFilter;
+  const displaySections = isFiltered
+    ? sections.map(sec => {
+        // depth3 기준으로만 필터 — 각 depth3의 부모 depth2 ID를 먼저 추적
+        let lastD2Id = null;
+        const parentD2Of = {};
+        sec.children.forEach(t => {
+          if (t.depth2 && !t.depth3) lastD2Id = t.id;
+          else if (t.depth3) parentD2Of[t.id] = lastD2Id;
+        });
+        const matchD3 = sec.children.filter(t => t.depth3 && t.work_status === tocFilter);
+        if (!matchD3.length) return null;
+        const neededD2 = new Set(matchD3.map(t => parentD2Of[t.id]).filter(Boolean));
+        return {
+          ...sec,
+          children: sec.children.filter(t =>
+            (t.depth3 && t.work_status === tocFilter) ||
+            (t.depth2 && !t.depth3 && neededD2.has(t.id))
+          ),
+        };
+      }).filter(Boolean)
+    : sections;
+
+  // Update filter count
+  const countEl = document.getElementById('toc-filter-count');
+  if (countEl) {
+    if (isFiltered) {
+      const total = allToc.filter(t => t.depth3 && t.work_status === tocFilter).length;
+      countEl.textContent = `${total}개 항목`;
+    } else {
+      countEl.textContent = '';
+    }
+  }
+
+  let html = `<div id="toc-sections-container"${isFiltered ? ' class="toc-filtered"' : ''}>` ;
+
+  displaySections.forEach((sec, si) => {
+    const collapsed    = tocCollapsed.has(sec.depth1);
+    const hasKids      = sec.children.length > 0;
+    const depth3Count  = sec.children.filter(c => c.depth3).length;
+    const chevron      = hasKids
+      ? `<i class="bi bi-chevron-${collapsed?'right':'down'} me-1" style="font-size:.8rem"></i>`
+      : '<span style="width:14px;display:inline-block"></span>';
+    const folderIcon   = `<i class="bi bi-folder2${collapsed?'':'-open'} text-primary me-1" style="font-size:.85rem"></i>`;
+
+    html += `<div class="toc-section" data-si="${si}">`;
+
+    if (sec.hdrItem) {
+      const t = sec.hdrItem;
+      const tags = t.requirement_labels.length
+        ? t.requirement_labels.map(l=>`<span class="req-tag">${esc(l)}</span>`).join('') : '';
+      html += `
+      <div class="toc-section-hdr d-flex align-items-center gap-1 py-2 px-2" data-id="${t.id}"
+           style="background:#f0f6ff;border-bottom:1px solid #dbeafe;">
+        <span class="section-drag-handle text-muted me-1" style="cursor:grab;font-size:1rem;line-height:1" title="섹션 이동">&#8801;</span>
+        <span ${hasKids?`onclick="toggleTocSection(${si})" style="cursor:pointer;display:inline-flex;align-items:center"`:'style="display:inline-flex;align-items:center"'}>${chevron}${folderIcon}</span>
+        <span class="toc-label fw-semibold flex-grow-1 ms-1"
+              style="cursor:text" onclick="event.stopPropagation();startInlineTocEdit(${t.id}, this)">${esc(sec.depth1)}</span>
+        ${tags ? `<span>${tags}</span>` : ''}
+        ${depth3Count > 0 ? `<span class="badge bg-secondary ms-1" style="font-size:.7rem">${depth3Count}</span>` : ''}
+        <span class="text-muted small ms-2">${t.page_number ? `p.${esc(t.page_number)}` : ''}</span>
+        <button class="btn btn-outline-primary btn-icon ms-1" title="상세 편집" onclick="event.stopPropagation();openTocEdit(${t.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-icon ms-1" onclick="event.stopPropagation();deleteToc(${t.id})"><i class="bi bi-trash"></i></button>
+      </div>`;
+    } else {
+      html += `
+      <div class="toc-section-hdr d-flex align-items-center gap-1 py-2 px-2"
+           style="background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+        <span class="section-drag-handle text-muted me-1" style="cursor:grab;font-size:1rem;line-height:1" title="섹션 이동">&#8801;</span>
+        <span ${hasKids?`onclick="toggleTocSection(${si})" style="cursor:pointer;display:inline-flex;align-items:center"`:'style="display:inline-flex;align-items:center"'}>${chevron}${folderIcon}</span>
+        <span class="fw-semibold flex-grow-1 ms-1 text-secondary">${esc(sec.depth1)}</span>
+        ${depth3Count > 0 ? `<span class="badge bg-secondary" style="font-size:.7rem">${depth3Count}</span>` : ''}
+      </div>`;
+    }
+
+    html += `<div class="toc-children-container${collapsed?' d-none':''}">`;
+    sec.children.forEach(t => {
+      const level   = t.depth3 ? 3 : 2;
+      const label   = t.depth3 || t.depth2 || '';
+      const indent  = level === 3 ? 32 : 16;
+      const num     = level === 3 ? (numMap[t.id] || '') : '';
+      const tags    = t.requirement_labels.length
+        ? t.requirement_labels.map(l=>`<span class="req-tag">${esc(l)}</span>`).join('') : '';
+      const remarks = t.remarks ? `<span class="text-muted ms-2" style="font-size:.78rem">${esc(t.remarks)}</span>` : '';
+      html += `
+      <div class="toc-node" data-id="${t.id}" style="padding-left:${indent}px;border-bottom:1px solid #f8fafc">
+        <div class="toc-node-inner d-flex align-items-center gap-2 py-2 px-2 rounded">
+          <span class="toc-drag-handle text-muted" style="cursor:grab;font-size:1rem;line-height:1">&#8801;</span>
+          <div class="flex-grow-1 overflow-hidden d-flex align-items-baseline gap-1">
+            ${num ? `<span class="toc-num flex-shrink-0">${num}</span>` : ''}
+            <span class="toc-label ${level===2?'fw-semibold':''}" style="${level===3?'font-size:.88rem;color:#475569':''};cursor:text"
+                  onclick="startInlineTocEdit(${t.id}, this)">${esc(label)}</span>
+            ${tags ? `<span class="ms-1">${tags}</span>` : ''}${remarks}
+          </div>
+          <span class="text-muted small me-1 flex-shrink-0">${t.page_number ? `p.${esc(t.page_number)}` : ''}</span>
+          ${level === 3 ? `<span class="status-badge ${STATUS_CLS[t.work_status]||'badge-신규'} me-1 flex-shrink-0">${esc(t.work_status)}</span>` : ''}
+          <button class="btn btn-outline-primary btn-icon me-1 flex-shrink-0" title="상세 편집" onclick="openTocEdit(${t.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-outline-danger btn-icon flex-shrink-0" onclick="deleteToc(${t.id})"><i class="bi bi-trash"></i></button>
+        </div>
+      </div>`;
+    });
+    html += '</div>'; // .toc-children-container
+
+    html += '</div>'; // .toc-section
+  });
+
+  html += '</div>'; // #toc-sections-container
+  container.innerHTML = html;
+  document.getElementById('badge-toc').textContent = allToc.length;
+  renderTocPageStats();
+
+  // sections 배열을 DOM에 저장 (toggleTocSection / cross-section 이동에 사용)
+  document.getElementById('toc-sections-container')._sections = sections;
+
+  // 기존 sortable 해제
+  if (tocSortable) { tocSortable.destroy(); tocSortable = null; }
+  tocSectionSortables.forEach(s => s.destroy());
+  tocSectionSortables = [];
+
+  if (isFiltered) return; // 필터 중엔 드래그 비활성
+
+  // 섹션 단위 드래그 (section-drag-handle 잡아야 동작)
+  tocSortable = Sortable.create(document.getElementById('toc-sections-container'), {
+    handle: '.section-drag-handle',
+    animation: 150,
+    ghostClass: 'toc-ghost',
+    onEnd: saveTocOrder,
+  });
+
+  // 섹션별 자식 드래그 (섹션 간 이동 허용)
+  document.querySelectorAll('.toc-children-container').forEach(childEl => {
+    const s = Sortable.create(childEl, {
+      handle: '.toc-drag-handle',
+      group: 'toc-items',
+      animation: 150,
+      ghostClass: 'toc-ghost',
+      onEnd(evt) {
+        const fromSec = evt.from.closest('.toc-section');
+        const toSec   = evt.to.closest('.toc-section');
+        if (fromSec !== toSec) {
+          const itemId = parseInt(evt.item.dataset.id);
+          const toSi   = parseInt(toSec.dataset.si);
+          const secs   = document.getElementById('toc-sections-container')._sections;
+          const newD1  = secs[toSi].depth1;
+          const t = allToc.find(x => x.id === itemId);
+          if (t) {
+            t.depth1 = newD1;
+            fetch(`/api/toc/${itemId}`, {
+              method: 'PUT',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ depth1: newD1 }),
+            });
+          }
+        }
+        saveTocOrder();
+      },
+    });
+    tocSectionSortables.push(s);
+  });
+}
+
+function toggleTocSection(si) {
+  const secEl = document.querySelector(`#toc-sections-container .toc-section[data-si="${si}"]`);
+  if (!secEl) return;
+  const childrenEl = secEl.querySelector('.toc-children-container');
+  if (!childrenEl) return;
+
+  const secs = document.getElementById('toc-sections-container')._sections;
+  const d1   = secs?.[si]?.depth1;
+
+  const wasCollapsed = childrenEl.classList.contains('d-none');
+  if (wasCollapsed) {
+    if (d1) tocCollapsed.delete(d1);
+    childrenEl.classList.remove('d-none');
+  } else {
+    if (d1) tocCollapsed.add(d1);
+    childrenEl.classList.add('d-none');
+  }
+
+  const hdr = secEl.querySelector('.toc-section-hdr');
+  if (hdr) {
+    const ch = hdr.querySelector('.bi-chevron-down, .bi-chevron-right');
+    if (ch) { ch.classList.toggle('bi-chevron-down', wasCollapsed); ch.classList.toggle('bi-chevron-right', !wasCollapsed); }
+    const fi = hdr.querySelector('.bi-folder2-open, .bi-folder2');
+    if (fi) { fi.classList.toggle('bi-folder2-open', wasCollapsed); fi.classList.toggle('bi-folder2', !wasCollapsed); }
+  }
+}
+
+function startInlineTocEdit(id, labelEl) {
+  if (labelEl.querySelector('input')) return; // 이미 편집 중
+  const t = allToc.find(x => x.id === id);
+  if (!t) return;
+  const field = t.depth3 ? 'depth3' : t.depth2 ? 'depth2' : 'depth1';
+  const original = t[field] || '';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = original;
+  input.className = 'form-control form-control-sm d-inline-block';
+  input.style.cssText = 'width:auto;min-width:180px;max-width:400px;padding:1px 6px;height:auto;font-size:inherit';
+  labelEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let saved = false;
+  async function save() {
+    if (saved) return;
+    saved = true;
+    const newVal = input.value.trim();
+    if (newVal && newVal !== original) {
+      await fetch(`/api/toc/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ [field]: newVal }),
+      });
+      t[field] = newVal; // 로컬 캐시 갱신
+    }
+    loadToc();
+  }
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { saved = true; loadToc(); }
+  });
+}
+
+function updateQaParentSelectors() {
+  const level = parseInt(document.getElementById('qa-level').value);
+  const d1Sel = document.getElementById('qa-d1');
+  const d2Sel = document.getElementById('qa-d2');
+
+  if (level === 1) {
+    d1Sel.classList.add('d-none');
+    d2Sel.classList.add('d-none');
+    return;
+  }
+
+  const d1Values = [...new Set(allToc.filter(t => !t.depth2 && !t.depth3 && t.depth1).map(t => t.depth1))];
+  const prevD1 = d1Sel.value;
+  d1Sel.innerHTML = d1Values.map(v => `<option value="${v}">${v}</option>`).join('');
+  if (prevD1 && d1Values.includes(prevD1)) d1Sel.value = prevD1;
+  d1Sel.classList.remove('d-none');
+
+  if (level === 2) {
+    d2Sel.classList.add('d-none');
+  } else {
+    const selectedD1 = d1Sel.value;
+    const d2Values = [...new Set(allToc.filter(t => t.depth1 === selectedD1 && t.depth2 && !t.depth3).map(t => t.depth2))];
+    const prevD2 = d2Sel.value;
+    d2Sel.innerHTML = d2Values.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (prevD2 && d2Values.includes(prevD2)) d2Sel.value = prevD2;
+    d2Sel.classList.remove('d-none');
+  }
+}
+
+async function quickAddToc() {
+  const level = parseInt(document.getElementById('qa-level').value);
+  const name = document.getElementById('qa-name').value.trim();
+  if (!name) { document.getElementById('qa-name').focus(); return; }
+
+  const parentD1 = document.getElementById('qa-d1').value;
+  const parentD2 = document.getElementById('qa-d2').value;
+
+  if (level >= 2 && !parentD1) { alert('상위 1단계를 선택하세요.'); return; }
+  if (level === 3 && !parentD2) { alert('상위 2단계를 선택하세요.'); return; }
+
+  const payload = {
+    depth1: level === 1 ? name : parentD1,
+    depth2: level === 2 ? name : (level === 3 ? parentD2 : ''),
+    depth3: level === 3 ? name : '',
+    work_status: '신규',
+  };
+  await fetch(`/api/pdf/${PDF_ID}/toc`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  document.getElementById('qa-name').value = '';
+  document.getElementById('qa-name').focus();
+  loadToc();
+  invalidateMatrix();
+}
+
+async function saveTocOrder() {
+  // 섹션 DOM 순서대로 헤더 → 자식 순으로 order_index 할당
+  const order = [];
+  document.querySelectorAll('#toc-sections-container .toc-section').forEach(secEl => {
+    const hdr = secEl.querySelector('.toc-section-hdr[data-id]');
+    if (hdr) order.push({ id: parseInt(hdr.dataset.id), order_index: order.length });
+    secEl.querySelectorAll('.toc-children-container .toc-node[data-id]').forEach(node => {
+      order.push({ id: parseInt(node.dataset.id), order_index: order.length });
+    });
+  });
+
+  allToc.sort((a, b) => {
+    const ai = order.findIndex(o => o.id === a.id);
+    const bi = order.findIndex(o => o.id === b.id);
+    return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
+  });
+
+  await fetch(`/api/pdf/${PDF_ID}/toc/reorder`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(order)
+  });
+  invalidateMatrix();
+}
+
+// 빠른 추가 Enter 키 지원
+document.getElementById('qa-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') quickAddToc();
+});
+document.getElementById('qa-level').addEventListener('change', updateQaParentSelectors);
+document.getElementById('qa-d1').addEventListener('change', updateQaParentSelectors);
+
+function openTocEdit(id) {
+  const t = allToc.find(x => x.id===id); if (!t) return;
+  document.getElementById('toc-modal-title').textContent = '목차 항목 편집';
+  document.getElementById('toc-edit-id').value = t.id;
+  document.getElementById('m-d1').value = t.depth1;
+  // depth3 항목인데 depth2가 없으면 같은 섹션의 이전 depth2 항목에서 추론
+  let d2Val = t.depth2;
+  if (t.depth3 && !t.depth2) {
+    const idx = allToc.findIndex(x => x.id === id);
+    for (let i = idx - 1; i >= 0; i--) {
+      if (allToc[i].depth1 === t.depth1 && allToc[i].depth2) {
+        d2Val = allToc[i].depth2; break;
+      }
+    }
+  }
+  document.getElementById('m-d2').value = d2Val;
+  document.getElementById('m-d3').value = t.depth3;
+  document.getElementById('m-page').value = t.page_number;
+  document.getElementById('m-status').value = t.work_status;
+  document.getElementById('m-remarks').value = t.remarks;
+  mReqsSelected = new Set(t.requirement_ids);
+  document.getElementById('m-req-search').value = '';
+  renderReqPickerTree('');
+  updateReqTags();
+  tocModal.show();
+}
+
+document.getElementById('btn-toc-save').addEventListener('click', async () => {
+  const id = document.getElementById('toc-edit-id').value;
+  const payload = {
+    depth1: document.getElementById('m-d1').value.trim(),
+    depth2: document.getElementById('m-d2').value.trim(),
+    depth3: document.getElementById('m-d3').value.trim(),
+    page_number: document.getElementById('m-page').value.trim(),
+    work_status: document.getElementById('m-status').value,
+    remarks: document.getElementById('m-remarks').value.trim(),
+    requirement_ids: [...mReqsSelected],
+  };
+  if (!payload.depth1 && !payload.depth2 && !payload.depth3) { alert('Depth를 최소 하나 입력해주세요.'); return; }
+  const url = id ? `/api/toc/${id}` : `/api/pdf/${PDF_ID}/toc`;
+  await fetch(url, {method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  tocModal.hide(); loadToc(); invalidateMatrix();
+});
+
+async function deleteToc(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await fetch(`/api/toc/${id}`, {method:'DELETE'});
+  loadToc(); invalidateMatrix();
+}
+
+/* ─── 요구사항 → 목차 일괄 매핑 오프캔버스 ──────────────────── */
+async function openReqMapPanel(reqId) {
+  reqMapReqId = reqId;
+  const r = allReqs.find(x => x.id === reqId);
+  document.getElementById('req-map-req-label').textContent =
+    r ? `${r.req_id}  ${r.req_name}` : '';
+
+  // 현재 매핑된 목차 IDs 로드
+  const res = await fetch(`/api/req/${reqId}/toc-mapping`);
+  const mapped = await res.json();
+  reqMapCheckedTocIds = new Set(mapped);
+
+  document.getElementById('toc-map-search').value = '';
+  renderTocMapTree('');
+  reqMapOffcanvasInst.show();
+}
+
+function renderTocMapTree(query) {
+  const wrap = document.getElementById('toc-map-tree');
+  if (!allToc.length) {
+    wrap.innerHTML = '<div class="text-muted small text-center py-4">목차 항목이 없습니다.</div>';
+    return;
+  }
+  const q = query.toLowerCase();
+  // 섹션별 그룹핑 (buildTocSections 재사용)
+  const sections = buildTocSections();
+  let html = '';
+  sections.forEach(sec => {
+    const matchSec = !q || sec.depth1.toLowerCase().includes(q);
+    const children = sec.children.filter(t =>
+      matchSec ||
+      (t.depth2 || '').toLowerCase().includes(q) ||
+      (t.depth3 || '').toLowerCase().includes(q)
+    );
+    if (!matchSec && !children.length) return;
+
+    html += `<div class="toc-map-section-hdr">
+      <i class="bi bi-folder2 text-primary" style="font-size:.82rem"></i>
+      <span>${esc(sec.depth1)}</span>`;
+    if (sec.hdrItem) {
+      const chk = reqMapCheckedTocIds.has(sec.hdrItem.id) ? 'checked' : '';
+      html += `<label class="d-flex align-items-center gap-1 ms-auto" style="cursor:pointer;font-weight:400;font-size:.78rem"
+               onclick="event.stopPropagation()">
+        <input type="checkbox" class="form-check-input m-0" value="${sec.hdrItem.id}" ${chk}
+               onchange="onTocMapCheck(this,${sec.hdrItem.id})">
+        <span>섹션 헤더</span>
+      </label>`;
+    }
+    html += '</div>';
+
+    children.forEach(t => {
+      const chk = reqMapCheckedTocIds.has(t.id) ? 'checked' : '';
+      const label = t.depth3 || t.depth2 || '';
+      const depthCls = t.depth3 ? 'toc-map-depth3' : 'toc-map-depth2';
+      const icon = t.depth3 ? '<i class="bi bi-dot" style="font-size:1.1rem;line-height:.8;color:#94a3b8"></i>'
+                             : '<i class="bi bi-file-text" style="font-size:.8rem;color:#94a3b8"></i>';
+      html += `<label class="toc-map-item ${depthCls}"
+               onclick="onTocMapLabelClick(${t.id},event)">
+        <input type="checkbox" class="form-check-input m-0" value="${t.id}" ${chk}
+               onchange="onTocMapCheck(this,${t.id})" onclick="event.stopPropagation()">
+        ${icon}
+        <span class="flex-grow-1 text-truncate" title="${esc(label)}">${esc(label)}</span>
+        ${t.page_number ? `<span class="text-muted" style="font-size:.73rem;flex-shrink:0">p.${esc(t.page_number)}</span>` : ''}
+      </label>`;
+    });
+  });
+  wrap.innerHTML = html || '<div class="text-muted small text-center py-4">검색 결과 없음</div>';
+  updateTocMapCount();
+}
+
+function onTocMapLabelClick(id, e) {
+  if (e.target.tagName === 'INPUT') return;
+  if (reqMapCheckedTocIds.has(id)) reqMapCheckedTocIds.delete(id);
+  else reqMapCheckedTocIds.add(id);
+  const cb = e.currentTarget.querySelector('input[type=checkbox]');
+  if (cb) cb.checked = reqMapCheckedTocIds.has(id);
+  updateTocMapCount();
+}
+
+function onTocMapCheck(cb, id) {
+  if (cb.checked) reqMapCheckedTocIds.add(id);
+  else reqMapCheckedTocIds.delete(id);
+  updateTocMapCount();
+}
+
+function filterTocMapTree() {
+  renderTocMapTree(document.getElementById('toc-map-search').value);
+}
+
+function tocMapSelectAll(checked) {
+  allToc.forEach(t => {
+    if (checked) reqMapCheckedTocIds.add(t.id);
+    else reqMapCheckedTocIds.delete(t.id);
+  });
+  renderTocMapTree(document.getElementById('toc-map-search').value);
+}
+
+function updateTocMapCount() {
+  document.getElementById('toc-map-checked-count').textContent =
+    `${reqMapCheckedTocIds.size}개 선택됨`;
+}
+
+async function applyReqMap() {
+  if (!reqMapReqId) return;
+  const btn = document.querySelector('#reqMapOffcanvas .btn-primary');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>저장 중...';
+  await fetch(`/api/req/${reqMapReqId}/map-tocs`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({toc_ids: [...reqMapCheckedTocIds]}),
+  });
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>적용';
+  reqMapOffcanvasInst.hide();
+  loadToc();
+  invalidateMatrix();
+}
+
+/* ─── Matrix ─────────────────────────────────────────────────── */
+document.getElementById('tab-matrix-btn').addEventListener('click', () => {
+  if (!matrixLoaded) loadMatrix();
+});
+
+async function loadMatrix() {
+  const body = document.getElementById('matrix-body');
+  body.innerHTML = '<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>불러오는 중...</div>';
+  const res = await fetch(`/api/pdf/${PDF_ID}/matrix`);
+  matrixData = await res.json();
+  matrixLoaded = true;
+  renderMatrix();
+}
+
+function setMatrixView(view) {
+  matrixView = view;
+  document.getElementById('matrix-view-toc').className =
+    view === 'toc' ? 'btn btn-primary' : 'btn btn-outline-primary';
+  document.getElementById('matrix-view-req').className =
+    view === 'requirement' ? 'btn btn-primary' : 'btn btn-outline-primary';
+  if (!matrixData && !matrixLoaded) {
+    loadMatrix();
+    return;
+  }
+  if (matrixData) renderMatrix();
+}
+
+function renderMatrixStats(data) {
+  const stats = document.getElementById('matrix-stats');
+  stats.innerHTML = `
+    <span class="badge bg-success">연결됨 ${data.linked_count}개</span>
+    <span class="badge bg-danger">미연결 ${data.unlinked_count}개</span>
+    <span class="badge bg-secondary">전체 ${data.total_req}개</span>`;
+}
+
+function renderMatrix() {
+  if (!matrixData) return;
+  renderMatrixStats(matrixData);
+  const body = document.getElementById('matrix-body');
+  body.innerHTML = matrixView === 'requirement'
+    ? renderRequirementMatrix(matrixData)
+    : renderTocMatrix(matrixData);
+}
+
+function matrixTocLabel(row) {
+  return row.depth3
+    ? `<span class="text-muted" style="padding-left:36px;display:block;font-size:.85rem">${esc(row.depth3)}</span>`
+    : row.depth2
+      ? `<span class="text-secondary" style="padding-left:18px;display:block">${esc(row.depth2)}</span>`
+      : `<span class="fw-semibold">${esc(row.depth1)}</span>`;
+}
+
+function matrixStatusBadge(status) {
+  return `<span class="status-badge ${STATUS_CLS[status]||'badge-신규'}">${esc(status || '신규')}</span>`;
+}
+
+function renderTocMatrix(data) {
+  let html = '';
+  if (data.unlinked_requirements.length) {
+    html += `<div class="alert alert-warning py-3 mb-4">
+      <div class="fw-semibold mb-2"><i class="bi bi-exclamation-triangle me-1"></i>목차에 연결되지 않은 요구사항 (${data.unlinked_requirements.length}개)</div>
+      <div class="d-flex flex-wrap gap-1">${data.unlinked_requirements.map(r=>`<span class="req-tag">${esc(r.req_id)}</span>`).join('')}</div>
+    </div>`;
+  } else {
+    html += `<div class="alert alert-success py-2 mb-4"><i class="bi bi-check-circle me-1"></i>모든 요구사항이 목차에 연결되어 있습니다.</div>`;
+  }
+  html += '<div class="table-responsive"><table class="table table-bordered table-sm mb-0"><thead><tr><th style="width:40%">목차 항목</th><th style="width:80px">페이지</th><th style="width:110px">작업상황</th><th>연결된 요구사항</th></tr></thead><tbody>';
+  for (const row of data.toc_rows) {
+    const tags = row.requirement_labels.length
+      ? row.requirement_labels.map(l=>`<span class="req-tag">${esc(l)}</span>`).join('')
+      : '<span class="text-muted small">—</span>';
+    html += `<tr><td>${matrixTocLabel(row)}</td><td class="text-center text-muted small">${esc(row.page_number)||'—'}</td><td>${matrixStatusBadge(row.work_status)}</td><td>${tags}</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderRequirementMatrix(data) {
+  let html = '';
+  if (data.unlinked_requirements.length) {
+    html += `<div class="alert alert-warning py-3 mb-4">
+      <div class="fw-semibold mb-2"><i class="bi bi-exclamation-triangle me-1"></i>목차에 연결되지 않은 요구사항 (${data.unlinked_requirements.length}개)</div>
+      <div class="d-flex flex-wrap gap-1">${data.unlinked_requirements.map(r=>`<span class="req-tag">${esc(r.req_id)}</span>`).join('')}</div>
+    </div>`;
+  } else {
+    html += `<div class="alert alert-success py-2 mb-4"><i class="bi bi-check-circle me-1"></i>모든 요구사항이 하나 이상의 목차에 연결되어 있습니다.</div>`;
+  }
+
+  html += '<div class="table-responsive"><table class="table table-bordered table-sm mb-0"><thead><tr><th style="width:150px">요구사항 ID</th><th style="width:28%">요구사항명</th><th>연결된 목차</th><th style="width:78px">액션</th></tr></thead><tbody>';
+  for (const row of data.requirement_rows || []) {
+    const tocItems = row.toc_items || [];
+    const tocHtml = tocItems.length
+      ? tocItems.map(t => `
+          <div class="d-flex align-items-start gap-2 mb-1">
+            ${matrixStatusBadge(t.work_status)}
+            <div>
+              <div class="fw-semibold small">${esc(t.path || t.depth3 || t.depth2 || t.depth1)}</div>
+              <div class="text-muted" style="font-size:.75rem">페이지 ${esc(t.page_number) || '—'}</div>
+            </div>
+          </div>`).join('')
+      : '<span class="text-danger small fw-semibold">연결된 목차 없음</span>';
+    const rowClass = tocItems.length ? '' : 'table-warning';
+    html += `<tr class="${rowClass}">
+      <td><span class="req-tag">${esc(row.req_id)}</span></td>
+      <td>
+        <div class="fw-semibold">${esc(row.req_name)}</div>
+        ${row.detail ? `<div class="text-muted mt-1" style="font-size:.76rem;line-height:1.5;max-height:3em;overflow:hidden">${esc(row.detail)}</div>` : ''}
+      </td>
+      <td>${tocHtml}</td>
+      <td class="text-center">
+        <button class="btn btn-outline-primary btn-sm btn-icon" onclick="openReqMapPanel(${row.id})" title="목차 매핑">
+          <i class="bi bi-diagram-3"></i>
+        </button>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+async function normalizeTocOrder() {
+  if (!confirm('중복/흩어진 섹션을 자동으로 정리합니다. 계속하시겠습니까?')) return;
+  await fetch(`/api/pdf/${PDF_ID}/toc/normalize`, { method: 'POST' });
+  loadToc();
+  invalidateMatrix();
+}
+
+// ── PDF 업로드 (모달) ────────────────────────────────────────────────────────
+const TOTAL_STEPS = 7;
+let uploadModal, attachModalBS;
+let chosenPdfFile = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  uploadModal   = new bootstrap.Modal(document.getElementById('uploadModal'));
+  attachModalBS = new bootstrap.Modal(document.getElementById('attachModal'));
+  document.getElementById('uploadModal').addEventListener('hidden.bs.modal', () => {
+    if (!document.getElementById('progress-section').classList.contains('d-none')) return;
+    resetUploadForm();
+  });
+});
+
+function openUploadModal() { uploadModal.show(); }
+
+const pdfFileInput = document.getElementById('pdfFileInput');
+const dropZone     = document.getElementById('drop-zone');
+const btnUpload    = document.getElementById('btn-upload');
+const selFile      = document.getElementById('selected-file');
+const fileNameEl   = document.getElementById('file-name');
+const progSec      = document.getElementById('progress-section');
+const progMsg      = document.getElementById('progress-msg');
+const progPct      = document.getElementById('progress-pct');
+const progBar      = document.getElementById('progress-bar');
+const uploadResult = document.getElementById('upload-result');
+
+pdfFileInput.addEventListener('change', () => { if (pdfFileInput.files[0]) selectPdfFile(pdfFileInput.files[0]); });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.background='#eff6ff'; dropZone.style.borderColor='#3b82f6'; });
+dropZone.addEventListener('dragleave', () => { dropZone.style.background=''; dropZone.style.borderColor='#cbd5e1'; });
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.style.background=''; dropZone.style.borderColor='#cbd5e1';
+  const f = e.dataTransfer.files[0];
+  f && f.name.toLowerCase().endsWith('.pdf') ? selectPdfFile(f) : alert('PDF 파일만 가능합니다.');
+});
+function selectPdfFile(f) {
+  chosenPdfFile = f; fileNameEl.textContent = f.name;
+  selFile.classList.remove('d-none'); btnUpload.disabled = false;
+  uploadResult.classList.add('d-none');
+}
+function resetUploadForm() {
+  chosenPdfFile = null; pdfFileInput.value = '';
+  selFile.classList.add('d-none'); btnUpload.disabled = true;
+  progSec.classList.add('d-none'); uploadResult.classList.add('d-none');
+  resetUploadSteps();
+}
+btnUpload.addEventListener('click', async () => {
+  if (!chosenPdfFile) return;
+  btnUpload.disabled = true;
+  progSec.classList.remove('d-none');
+  uploadResult.classList.add('d-none');
+  document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = true;
+  resetUploadSteps(); setUploadStep(0, '업로드 준비 중...');
+  const fd = new FormData(); fd.append('file', chosenPdfFile);
+  try {
+    const res  = await fetch(`/project/${PROJECT_ID}/upload`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { uploadResult.classList.remove('d-none'); uploadResult.innerHTML = `<div class="alert alert-danger py-2">${data.error}</div>`; btnUpload.disabled = false; return; }
+    listenUploadProgress(data.task_id);
+  } catch(e) { btnUpload.disabled = false; }
+});
+function listenUploadProgress(taskId) {
+  const es = new EventSource(`/upload/progress/${taskId}`);
+  es.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'keepalive') return;
+    if (msg.type === 'progress') { setUploadStep(msg.step, msg.msg); }
+    else if (msg.type === 'done') {
+      stopUploadTimer(); setUploadStep(TOTAL_STEPS, msg.msg);
+      progBar.classList.remove('progress-bar-animated','progress-bar-striped'); progBar.classList.add('bg-success');
+      uploadResult.classList.remove('d-none');
+      uploadResult.innerHTML = `<div class="alert alert-success py-2">✅ ${msg.msg} <a href="/project/${PROJECT_ID}/pdf/${msg.pdf_id}" class="alert-link ms-2">새 PDF 열기 →</a></div>`;
+      es.close(); btnUpload.disabled = false;
+      document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = false;
+    } else if (msg.type === 'error') {
+      stopUploadTimer(); progBar.classList.add('bg-danger');
+      uploadResult.classList.remove('d-none'); uploadResult.innerHTML = `<div class="alert alert-danger py-2">❌ ${msg.msg}</div>`;
+      es.close(); btnUpload.disabled = false;
+      document.getElementById('upload-modal-footer').querySelector('.btn-secondary').disabled = false;
+    }
+  };
+}
+let _uploadTimer = null;
+function startUploadTimer() {
+  clearInterval(_uploadTimer);
+  const start = Date.now(); const el = document.getElementById('step-elapsed');
+  _uploadTimer = setInterval(() => { const s = Math.floor((Date.now()-start)/1000); el.textContent = s>0?`${s}초 경과`:''; }, 1000);
+}
+function stopUploadTimer() { clearInterval(_uploadTimer); document.getElementById('step-elapsed').textContent = ''; }
+function setUploadStep(step, msg) {
+  const pct = Math.min(Math.round((step/TOTAL_STEPS)*100),100);
+  progBar.style.width = pct+'%'; progMsg.textContent = msg; progPct.textContent = pct+'%';
+  startUploadTimer();
+  for (let i=1;i<=TOTAL_STEPS;i++) {
+    const el=document.getElementById(`step-${i}`); if(!el) continue; const ic=el.querySelector('i');
+    if(i<step){el.className='text-success py-1';ic.className='bi bi-check-circle-fill me-2 text-success';}
+    else if(i===step){el.className='text-primary fw-semibold py-1';ic.className='bi bi-arrow-right-circle-fill me-2 text-primary';}
+    else{el.className='text-muted py-1';ic.className='bi bi-circle me-2';}
+  }
+}
+function resetUploadSteps() {
+  stopUploadTimer(); progBar.style.width='0%';
+  progBar.classList.remove('bg-success','bg-danger'); progBar.classList.add('progress-bar-striped','progress-bar-animated');
+  for(let i=1;i<=TOTAL_STEPS;i++){const el=document.getElementById(`step-${i}`);if(el){el.className='text-muted py-1';el.querySelector('i').className='bi bi-circle me-2';}}
+}
+
+// ── 첨부파일 ─────────────────────────────────────────────────────────────────
+const ATTACH_META = {
+  presentation_original: { cat: '발표자료', kind: '원본', icon: 'bi-easel2',            color: '#3b82f6' },
+  presentation_copy:     { cat: '발표자료', kind: '사본', icon: 'bi-easel2',            color: '#93c5fd' },
+  proposal_original:     { cat: '제안서',   kind: '원본', icon: 'bi-file-earmark-text', color: '#8b5cf6' },
+  proposal_copy:         { cat: '제안서',   kind: '사본', icon: 'bi-file-earmark-text', color: '#c4b5fd' },
+};
+let attachData = {}, selectedCat = 'presentation', selectedKind = 'original';
+
+async function loadAttachments() {
+  const res = await fetch(`/api/project/${PROJECT_ID}/attachments`);
+  attachData = await res.json();
+  renderAttachList();
+}
+function renderAttachList() {
+  const filled = Object.values(attachData).filter(Boolean);
+  const badge = document.getElementById('attach-badge');
+  const badgePanel = document.getElementById('attach-count-panel');
+  if (badge) badge.textContent = filled.length;
+  if (badgePanel) badgePanel.textContent = filled.length;
+  const wrap = document.getElementById('attach-list-wrap');
+  if (!wrap) return;
+  if (!filled.length) {
+    wrap.innerHTML = '<div class="empty-state py-4"><i class="bi bi-paperclip" style="font-size:1.8rem"></i><div class="mt-2 text-muted small">등록된 첨부파일이 없습니다</div></div>';
+    return;
+  }
+  const order = ['presentation_original','presentation_copy','proposal_original','proposal_copy'];
+  wrap.innerHTML = '<ul class="list-group list-group-flush">' +
+    order.filter(k => attachData[k]).map(k => {
+      const att = attachData[k]; const m = ATTACH_META[k];
+      return `<li class="list-group-item px-4 py-3 d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+          <i class="bi ${m.icon}" style="color:${m.color};font-size:1.2rem"></i>
+          <div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-semibold" style="font-size:.88rem">${m.cat}</span>
+              <span class="badge rounded-pill" style="background:${m.color}20;color:${m.color};font-size:.72rem">${m.kind}</span>
+            </div>
+            <div class="text-muted small text-truncate" style="max-width:320px" title="${escHtml(att.original_name)}">${escHtml(att.original_name)}</div>
+            <div class="text-muted" style="font-size:.73rem">${att.uploaded_at}</div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="/api/project/${PROJECT_ID}/attachment/${k}/file" class="btn btn-outline-primary btn-sm"><i class="bi bi-download me-1"></i>다운로드</a>
+          <button class="btn btn-outline-secondary btn-sm" title="교체" onclick="openAttachModal('${k}')"><i class="bi bi-arrow-repeat"></i></button>
+          <button class="btn btn-outline-danger btn-sm" onclick="deleteAttachment('${k}')"><i class="bi bi-trash"></i></button>
+        </div>
+      </li>`;
+    }).join('') + '</ul>';
+}
+let attachManageModalBS;
+document.addEventListener('DOMContentLoaded', () => {
+  attachManageModalBS = new bootstrap.Modal(document.getElementById('attachManageModal'));
+});
+function renderAttachManageBody() {
+  const wrap = document.getElementById('attach-manage-body');
+  if (!wrap) return;
+  const filled = Object.entries(attachData).filter(([,v]) => v);
+  if (!filled.length) {
+    wrap.innerHTML = '<div class="py-5 text-center text-muted"><i class="bi bi-paperclip" style="font-size:2rem"></i><div class="mt-2 small">등록된 첨부파일이 없습니다</div></div>';
+    return;
+  }
+  const order = ['presentation_original','presentation_copy','proposal_original','proposal_copy'];
+  wrap.innerHTML = '<ul class="list-group list-group-flush">' +
+    order.filter(k => attachData[k]).map(k => {
+      const att = attachData[k]; const m = ATTACH_META[k];
+      return `<li class="list-group-item px-4 py-3 d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+          <i class="bi ${m.icon}" style="color:${m.color};font-size:1.2rem"></i>
+          <div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-semibold" style="font-size:.88rem">${m.cat}</span>
+              <span class="badge rounded-pill" style="background:${m.color}20;color:${m.color};font-size:.72rem">${m.kind}</span>
+            </div>
+            <div class="text-muted small text-truncate" style="max-width:300px" title="${escHtml(att.original_name)}">${escHtml(att.original_name)}</div>
+            <div class="text-muted" style="font-size:.73rem">${att.uploaded_at}</div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="/api/project/${PROJECT_ID}/attachment/${k}/file" class="btn btn-outline-primary btn-sm"><i class="bi bi-download me-1"></i>다운로드</a>
+          <button class="btn btn-outline-secondary btn-sm" title="교체" onclick="openAttachModal('${k}')"><i class="bi bi-arrow-repeat"></i></button>
+          <button class="btn btn-outline-danger btn-sm" onclick="deleteAttachFromManage('${k}')"><i class="bi bi-trash"></i></button>
+        </div>
+      </li>`;
+    }).join('') + '</ul>';
+}
+async function deleteAttachFromManage(slot) {
+  if (!confirm('첨부파일을 삭제하시겠습니까?')) return;
+  await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'DELETE' });
+  attachData[slot] = null;
+  const badge = document.getElementById('attach-badge');
+  if (badge) badge.textContent = Object.values(attachData).filter(Boolean).length;
+  renderAttachManageBody();
+}
+
+function openAttachManageModal() {
+  renderAttachManageBody();
+  attachManageModalBS.show();
+}
+function openAttachModal(presetSlot) {
+  selectedCat = 'presentation'; selectedKind = 'original';
+  document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+  document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedKind));
+  document.getElementById('attach-file-input').value = '';
+  document.getElementById('attach-overwrite-warn').classList.add('d-none');
+  if (presetSlot && ATTACH_META[presetSlot]) {
+    const m = ATTACH_META[presetSlot];
+    const catMap = { '발표자료':'presentation','제안서':'proposal' };
+    const kindMap = { '원본':'original','사본':'copy' };
+    selectedCat  = catMap[m.cat]  || 'presentation';
+    selectedKind = kindMap[m.kind] || 'original';
+    document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+    document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.toggle('active', b.dataset.kind === selectedKind));
+  }
+  updateOverwriteWarn();
+  attachModalBS.show();
+}
+function pickCat(el) {
+  document.querySelectorAll('.attach-pick-btn[data-cat]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active'); selectedCat = el.dataset.cat; updateOverwriteWarn();
+}
+function pickKind(el) {
+  document.querySelectorAll('.attach-pick-btn[data-kind]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active'); selectedKind = el.dataset.kind; updateOverwriteWarn();
+}
+function updateOverwriteWarn() {
+  const slot = `${selectedCat}_${selectedKind}`;
+  document.getElementById('attach-overwrite-warn').classList.toggle('d-none', !attachData[slot]);
+}
+async function submitAttach() {
+  const file = document.getElementById('attach-file-input').files[0];
+  if (!file) { alert('파일을 선택하세요.'); return; }
+  const slot = `${selectedCat}_${selectedKind}`;
+  const btn  = document.getElementById('attach-submit-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업로드 중...';
+  const fd = new FormData(); fd.append('file', file);
+  const res = await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'POST', body: fd });
+  if (res.ok) { attachData[slot] = await res.json(); attachModalBS.hide();
+    const badge = document.getElementById('attach-badge');
+    if (badge) badge.textContent = Object.values(attachData).filter(Boolean).length;
+    renderAttachManageBody(); }
+  else { alert('업로드에 실패했습니다.'); }
+  btn.disabled = false; btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
+}
+async function deleteAttachment(slot) {
+  if (!confirm('첨부파일을 삭제하시겠습니까?')) return;
+  await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'DELETE' });
+  attachData[slot] = null; renderAttachList();
+}
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+loadAttachments();
+
+// init — 타입 규칙 먼저 로드 후 요구사항 렌더
+loadBiz();
+loadToc();
+loadReqTypeRules().then(() => loadReqs());
+</script>
+{% endblock %}

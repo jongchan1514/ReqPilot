@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}프로젝트 목록 — 요구사항 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="bi bi-grid me-2"></i>프로젝트 목록</h4>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createModal">
+    <i class="bi bi-plus-lg me-1"></i> 새 프로젝트
+  </button>
+</div>
+
+{% if projects %}
+<div class="row g-3" id="project-grid">
+  {% for p in projects %}
+  <div class="col-md-4" id="proj-card-{{ p.id }}">
+    <div class="card project-card h-100" onclick="location.href='/project/{{ p.id }}'">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="fw-bold mb-0">{{ p.name }}</h6>
+          <button class="btn btn-link btn-sm p-0 text-danger"
+                  onclick="event.stopPropagation(); deleteProject({{ p.id }}, '{{ p.name }}')"
+                  title="삭제">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+        {% if p.description %}
+        <p class="text-muted small mb-3">{{ p.description }}</p>
+        {% else %}
+        <p class="text-muted small mb-3">—</p>
+        {% endif %}
+        <div class="d-flex gap-3">
+          <span class="badge bg-light text-dark border">
+            <i class="bi bi-file-earmark-pdf text-danger me-1"></i>PDF {{ p.pdfs|length }}
+          </span>
+          <span class="badge bg-light text-dark border">
+            <i class="bi bi-list-check text-primary me-1"></i>요구사항 {{ p.pdfs|map(attribute='requirements')|map('length')|sum }}
+          </span>
+        </div>
+      </div>
+      <div class="card-footer bg-white text-muted small border-top-0 pt-0 pb-3 px-4">
+        <i class="bi bi-calendar3 me-1"></i>{{ p.created_at.strftime('%Y-%m-%d') }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body empty-state">
+    <i class="bi bi-folder-plus"></i>
+    <div class="fw-semibold mb-1">프로젝트가 없습니다</div>
+    <div class="text-muted small mb-3">새 프로젝트를 만들어 PDF를 업로드하세요</div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createModal">
+      <i class="bi bi-plus-lg me-1"></i> 새 프로젝트 만들기
+    </button>
+  </div>
+</div>
+{% endif %}
+
+<!-- Create project modal -->
+<div class="modal fade" id="createModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">새 프로젝트</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">프로젝트 이름 <span class="text-danger">*</span></label>
+          <input id="new-name" type="text" class="form-control" placeholder="예) 전자정부 시스템 요구사항">
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold">설명 <span class="text-muted fw-normal">(선택)</span></label>
+          <textarea id="new-desc" class="form-control" rows="3" placeholder="프로젝트에 대한 간단한 설명"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="btn-create">만들기</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const createModal = new bootstrap.Modal(document.getElementById('createModal'));
+
+document.getElementById('new-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-create').click();
+});
+
+document.getElementById('btn-create').addEventListener('click', async () => {
+  const name = document.getElementById('new-name').value.trim();
+  const desc = document.getElementById('new-desc').value.trim();
+  if (!name) { alert('프로젝트 이름을 입력해주세요.'); return; }
+  const res = await fetch('/api/projects', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description: desc }),
+  });
+  const data = await res.json();
+  if (data.success) {
+    location.href = `/project/${data.project.id}`;
+  } else {
+    alert(data.error || '생성 실패');
+  }
+});
+
+async function deleteProject(id, name) {
+  if (!confirm(`"${name}" 프로젝트를 삭제하시겠습니까?\n\n포함된 모든 PDF, 요구사항, 목차가 함께 삭제됩니다.`)) return;
+  const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById(`proj-card-${id}`)?.remove();
+  }
+}
+</script>
+{% endblock %}

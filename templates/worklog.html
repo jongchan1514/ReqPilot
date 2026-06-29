@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+{% block title %}작업일지{% endblock %}
+
+{% block extra_css %}
+<!-- Quill Snow theme -->
+<link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+<style>
+  .worklog-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 20px;
+    height: calc(100vh - 120px);
+  }
+
+  /* ── 좌측 목록 ── */
+  .log-list-panel {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .log-list-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .log-list-header h6 {
+    font-weight: 700;
+    margin: 0;
+    font-size: .9rem;
+  }
+  .log-list-scroll {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .log-entry {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .log-entry:hover { background: #f8fafc; }
+  .log-entry.active { background: #eff6ff; border-left: 3px solid #3b82f6; padding-left: 13px; }
+  .log-entry-title {
+    font-weight: 600;
+    font-size: .85rem;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .log-entry-meta {
+    font-size: .72rem;
+    color: #94a3b8;
+    margin-top: 3px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .log-tag-chip {
+    display: inline-block;
+    background: #f1f5f9;
+    color: #475569;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: .68rem;
+    font-weight: 600;
+  }
+  .log-empty {
+    padding: 40px 16px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: .85rem;
+  }
+
+  /* ── 우측 에디터 ── */
+  .log-editor-panel {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .log-editor-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .log-title-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e293b;
+    background: transparent;
+  }
+  .log-title-input::placeholder { color: #cbd5e1; font-weight: 400; }
+  .log-editor-meta {
+    padding: 8px 18px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    background: #fafafa;
+  }
+  .log-date-label { font-size: .78rem; color: #94a3b8; }
+  /* tags input */
+  .tags-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: .72rem;
+    font-weight: 600;
+  }
+  .tag-chip button {
+    border: none;
+    background: none;
+    color: #3b82f6;
+    cursor: pointer;
+    font-size: .7rem;
+    padding: 0;
+    line-height: 1;
+  }
+  .tags-input {
+    border: none;
+    outline: none;
+    font-size: .78rem;
+    color: #475569;
+    background: transparent;
+    min-width: 80px;
+  }
+  .tags-input::placeholder { color: #cbd5e1; }
+
+  /* Quill overrides */
+  .log-quill-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .ql-toolbar.ql-snow {
+    border: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 8px 18px;
+    flex-shrink: 0;
+  }
+  .ql-container.ql-snow {
+    border: none;
+    flex: 1;
+    overflow-y: auto;
+    font-size: .88rem;
+  }
+  .ql-editor { padding: 18px 22px; min-height: 100%; }
+  .ql-editor.ql-blank::before { color: #cbd5e1; font-style: normal; }
+
+  .log-footer {
+    padding: 10px 18px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    background: #fafafa;
+  }
+  .log-save-status { font-size: .78rem; color: #94a3b8; }
+
+  /* placeholder state */
+  .log-placeholder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #cbd5e1;
+    gap: 10px;
+  }
+  .log-placeholder i { font-size: 3rem; }
+  .log-placeholder p { font-size: .9rem; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <h5 class="fw-bold mb-0"><i class="bi bi-journal-text me-2 text-primary"></i>작업일지</h5>
+    <div class="text-muted small mt-1" id="log-summary"></div>
+  </div>
+</div>
+
+<div class="worklog-layout">
+  <!-- 좌측: 일지 목록 -->
+  <div class="log-list-panel">
+    <div class="log-list-header">
+      <h6>일지 목록</h6>
+      <button class="btn btn-primary btn-sm" onclick="newLog()">
+        <i class="bi bi-plus-lg me-1"></i>새 일지
+      </button>
+    </div>
+    <div class="log-list-scroll" id="log-list"></div>
+  </div>
+
+  <!-- 우측: 에디터 -->
+  <div class="log-editor-panel" id="editor-panel">
+    <!-- placeholder -->
+    <div class="log-placeholder" id="log-placeholder">
+      <i class="bi bi-journal-plus"></i>
+      <p>좌측에서 일지를 선택하거나<br>새 일지를 작성하세요.</p>
+    </div>
+    <!-- 에디터 (hidden until selected) -->
+    <div id="editor-content" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div class="log-editor-header">
+        <input type="text" class="log-title-input" id="log-title" placeholder="제목을 입력하세요">
+        <button class="btn btn-sm btn-outline-danger ms-2" id="btn-delete-log" onclick="deleteLog()" style="display:none">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </div>
+      <div class="log-editor-meta">
+        <span class="log-date-label" id="log-date-label"></span>
+        <div class="tags-wrap" id="tags-wrap">
+          <input type="text" class="tags-input" id="tags-input" placeholder="태그 입력 후 Enter..."
+                 onkeydown="addTagFromInput(event)">
+        </div>
+      </div>
+      <div class="log-quill-wrap">
+        <div id="quill-editor"></div>
+      </div>
+      <div class="log-footer">
+        <span class="log-save-status" id="save-status"></span>
+        <button class="btn btn-primary btn-sm" onclick="saveLog()">
+          <i class="bi bi-floppy me-1"></i>저장
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+<script>
+let logs = [];
+let currentLogId = null;   // null = new
+let quill = null;
+let tags = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+  initQuill();
+  loadLogs();
+});
+
+function initQuill() {
+  quill = new Quill('#quill-editor', {
+    theme: 'snow',
+    placeholder: '오늘의 작업 내용을 기록하세요...',
+    modules: {
+      toolbar: [
+        [{ header: [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ color: [] }, { background: [] }],
+        [{ list: 'ordered' }, { list: 'bullet' }, { list: 'check' }],
+        [{ indent: '-1' }, { indent: '+1' }],
+        ['blockquote', 'code-block'],
+        ['link'],
+        ['clean'],
+      ],
+    },
+  });
+}
+
+async function loadLogs() {
+  const res = await fetch('/api/worklogs');
+  logs = await res.json();
+  renderLogList();
+  const s = logs.length;
+  document.getElementById('log-summary').textContent = `총 ${s}개의 작업일지`;
+}
+
+function renderLogList() {
+  const el = document.getElementById('log-list');
+  if (!logs.length) {
+    el.innerHTML = '<div class="log-empty"><i class="bi bi-journal" style="font-size:2rem;display:block;margin-bottom:8px"></i>작성된 일지가 없습니다.</div>';
+    return;
+  }
+  // Group by date
+  const byDate = {};
+  logs.forEach(l => {
+    const d = l.created_at || '날짜 없음';
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(l);
+  });
+  el.innerHTML = logs.map(l => `
+    <div class="log-entry ${currentLogId === l.id ? 'active' : ''}" onclick="selectLog(${l.id})">
+      <div class="log-entry-title">${escHtml(l.title)}</div>
+      <div class="log-entry-meta">
+        <span>${l.created_at}</span>
+        ${l.tags.map(t => `<span class="log-tag-chip">${escHtml(t)}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function selectLog(id) {
+  currentLogId = id;
+  renderLogList();
+  const res = await fetch(`/api/worklogs/${id}`);
+  const log = await res.json();
+  showEditor();
+  document.getElementById('log-title').value = log.title;
+  document.getElementById('log-date-label').textContent = log.updated_at ? `수정: ${log.updated_at}` : log.created_at;
+  document.getElementById('btn-delete-log').style.display = '';
+  document.getElementById('save-status').textContent = '';
+  tags = log.tags || [];
+  renderTags();
+  quill.root.innerHTML = log.content || '';
+}
+
+function newLog() {
+  currentLogId = null;
+  renderLogList();
+  showEditor();
+  document.getElementById('log-title').value = '';
+  document.getElementById('log-date-label').textContent = '새 일지';
+  document.getElementById('btn-delete-log').style.display = 'none';
+  document.getElementById('save-status').textContent = '';
+  tags = [];
+  renderTags();
+  quill.setContents([]);
+  setTimeout(() => document.getElementById('log-title').focus(), 100);
+}
+
+function showEditor() {
+  document.getElementById('log-placeholder').style.display = 'none';
+  const ec = document.getElementById('editor-content');
+  ec.style.display = 'flex';
+  ec.style.flexDirection = 'column';
+  ec.style.flex = '1';
+  ec.style.overflow = 'hidden';
+}
+
+async function saveLog() {
+  const title = document.getElementById('log-title').value.trim() || '제목 없음';
+  const content = quill.root.innerHTML;
+  const payload = { title, content, tags };
+
+  let saved;
+  if (currentLogId) {
+    const res = await fetch(`/api/worklogs/${currentLogId}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload),
+    });
+    saved = await res.json();
+  } else {
+    const res = await fetch('/api/worklogs', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload),
+    });
+    saved = await res.json();
+    currentLogId = saved.id;
+  }
+
+  // update local list
+  const idx = logs.findIndex(l => l.id === saved.id);
+  const listItem = { id: saved.id, title: saved.title, tags: saved.tags, created_at: saved.created_at, updated_at: saved.updated_at };
+  if (idx >= 0) logs[idx] = listItem;
+  else logs.unshift(listItem);
+
+  document.getElementById('log-title').value = saved.title;
+  document.getElementById('log-date-label').textContent = `수정: ${saved.updated_at}`;
+  document.getElementById('btn-delete-log').style.display = '';
+  document.getElementById('save-status').textContent = `저장됨 ${new Date().toLocaleTimeString('ko-KR')}`;
+  document.getElementById('log-summary').textContent = `총 ${logs.length}개의 작업일지`;
+  renderLogList();
+}
+
+async function deleteLog() {
+  if (!currentLogId) return;
+  if (!confirm('이 일지를 삭제하시겠습니까?')) return;
+  await fetch(`/api/worklogs/${currentLogId}`, { method: 'DELETE' });
+  logs = logs.filter(l => l.id !== currentLogId);
+  currentLogId = null;
+  document.getElementById('log-placeholder').style.display = 'flex';
+  document.getElementById('editor-content').style.display = 'none';
+  document.getElementById('log-summary').textContent = `총 ${logs.length}개의 작업일지`;
+  renderLogList();
+}
+
+// ── Tags ────────────────────────────────────────────────────────────────────
+
+function addTagFromInput(evt) {
+  if (evt.key === 'Enter' || evt.key === ',') {
+    evt.preventDefault();
+    const input = document.getElementById('tags-input');
+    const val = input.value.replace(/,/g, '').trim();
+    if (val && !tags.includes(val)) {
+      tags.push(val);
+      renderTags();
+    }
+    input.value = '';
+  }
+}
+
+function removeTag(idx) {
+  tags.splice(idx, 1);
+  renderTags();
+}
+
+function renderTags() {
+  const wrap = document.getElementById('tags-wrap');
+  const input = document.getElementById('tags-input');
+  // remove old chips
+  wrap.querySelectorAll('.tag-chip').forEach(c => c.remove());
+  tags.forEach((t, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = `${escHtml(t)}<button onclick="removeTag(${i})" title="삭제">×</button>`;
+    wrap.insertBefore(chip, input);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

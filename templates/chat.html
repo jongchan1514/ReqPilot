@@ -1,0 +1,525 @@
+{% extends "base.html" %}
+{% block title %}AI 어시스턴트{% endblock %}
+
+{% block extra_css %}
+<style>
+.chat-layout {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 100px);
+}
+
+/* ── 상단 헤더 ── */
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+.chat-header-left h5 { margin: 0; font-weight: 700; }
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .8rem;
+}
+.sync-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #94a3b8;
+}
+.sync-dot.synced { background: #22c55e; }
+.sync-dot.syncing { background: #f59e0b; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── 동기화 진행 바 ── */
+.sync-progress-bar {
+  height: 3px; background: #e2e8f0; border-radius: 2px;
+  margin-bottom: 12px; display: none;
+}
+.sync-progress-fill {
+  height: 100%; background: #3b82f6; border-radius: 2px;
+  transition: width .3s ease;
+}
+
+/* ── 메시지 영역 ── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.chat-messages::-webkit-scrollbar { width: 5px; }
+.chat-messages::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+/* ── 빈 상태 ── */
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  gap: 12px;
+  text-align: center;
+}
+.chat-empty i { font-size: 3rem; }
+.chat-empty h6 { font-weight: 600; color: #64748b; margin: 0; }
+.chat-empty p  { font-size: .83rem; margin: 0; line-height: 1.6; }
+.suggestion-chips {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 8px; margin-top: 8px;
+}
+.suggestion-chip {
+  background: #fff; border: 1.5px solid #e2e8f0; border-radius: 20px;
+  padding: 6px 14px; font-size: .78rem; color: #475569; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.suggestion-chip:hover { border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; }
+
+/* ── 메시지 버블 ── */
+.msg { display: flex; gap: 10px; align-items: flex-start; }
+.msg.user { flex-direction: row-reverse; }
+
+.msg-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .85rem; flex-shrink: 0; font-weight: 700;
+}
+.msg.user   .msg-avatar { background: #3b82f6; color: #fff; }
+.msg.assistant .msg-avatar { background: #1e293b; color: #fff; }
+
+.msg-body { max-width: 75%; display: flex; flex-direction: column; gap: 6px; }
+.msg.user .msg-body { align-items: flex-end; }
+
+.msg-bubble {
+  padding: 10px 14px; border-radius: 14px;
+  font-size: .86rem; line-height: 1.6; word-break: break-word;
+}
+.msg.user .msg-bubble {
+  background: #3b82f6; color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.msg.assistant .msg-bubble {
+  background: #fff; color: #1e293b;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  border-bottom-left-radius: 4px;
+}
+
+/* 어시스턴트 버블 내 마크다운 */
+.msg.assistant .msg-bubble { padding: 14px 18px; }
+.msg.assistant .msg-bubble p  { margin: 0 0 10px; }
+.msg.assistant .msg-bubble p:last-child { margin: 0; }
+.msg.assistant .msg-bubble ul { margin: 4px 0 10px 0; padding: 0; list-style: none; }
+.msg.assistant .msg-bubble ol { margin: 4px 0 10px 18px; padding: 0; }
+.msg.assistant .msg-bubble ul li { padding-left: 14px; position: relative; margin-bottom: 5px; }
+.msg.assistant .msg-bubble ul li::before { content: "•"; position: absolute; left: 0; color: #3b82f6; font-weight: 700; }
+.msg.assistant .msg-bubble ol li { margin-bottom: 5px; }
+.msg.assistant .msg-bubble strong { color: #0f172a; font-weight: 700; }
+.msg.assistant .msg-bubble em { color: #475569; }
+.msg.assistant .msg-bubble code {
+  background: #f1f5f9; padding: 1px 6px; border-radius: 4px;
+  font-size: .82rem; color: #e11d48; font-family: monospace;
+}
+.msg.assistant .msg-bubble .md-h2 {
+  font-size: .95rem; font-weight: 700; color: #1e293b;
+  margin: 14px 0 6px; padding-bottom: 4px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.msg.assistant .msg-bubble .md-h3 {
+  font-size: .88rem; font-weight: 700; color: #334155;
+  margin: 10px 0 4px;
+}
+.msg.assistant .msg-bubble .md-hr {
+  border: none; border-top: 1px solid #e2e8f0; margin: 10px 0;
+}
+
+/* ── 출처 카드 ── */
+.sources-wrap { display: flex; flex-direction: column; gap: 5px; }
+.source-card {
+  display: flex; align-items: center; gap: 8px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 8px; padding: 6px 10px;
+  text-decoration: none; color: #475569;
+  font-size: .75rem; transition: background .12s, border-color .12s;
+}
+.source-card:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.source-type-badge {
+  font-size: .65rem; font-weight: 700; padding: 1px 6px;
+  border-radius: 6px; white-space: nowrap; flex-shrink: 0;
+}
+.type-requirement  { background: #dbeafe; color: #1d4ed8; }
+.type-toc          { background: #f3e8ff; color: #6b21a8; }
+.type-worklog      { background: #dcfce7; color: #166534; }
+.type-todo         { background: #fef3c7; color: #92400e; }
+.type-business_info{ background: #fee2e2; color: #991b1b; }
+.source-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-score { color: #cbd5e1; font-size: .68rem; flex-shrink: 0; }
+
+/* ── 로딩 버블 ── */
+.typing-dot {
+  display: inline-block; width: 6px; height: 6px;
+  background: #94a3b8; border-radius: 50; margin: 0 2px;
+  animation: typing .9s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: .15s; }
+.typing-dot:nth-child(3) { animation-delay: .3s; }
+@keyframes typing { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+/* ── 입력창 ── */
+.chat-input-area {
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.08);
+  border: 1.5px solid #e2e8f0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  transition: border-color .15s;
+}
+.chat-input-area:focus-within { border-color: #3b82f6; }
+.chat-textarea {
+  flex: 1; border: none; outline: none; resize: none;
+  font-size: .88rem; line-height: 1.5; color: #1e293b;
+  max-height: 120px; overflow-y: auto; background: transparent;
+}
+.chat-textarea::placeholder { color: #cbd5e1; }
+.btn-send {
+  border: none; background: #3b82f6; color: #fff;
+  border-radius: 9px; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0; font-size: .9rem;
+  transition: background .15s;
+}
+.btn-send:hover:not(:disabled) { background: #2563eb; }
+.btn-send:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
+
+/* 새 대화 버튼 */
+.btn-new-chat {
+  border: 1.5px solid #e2e8f0; background: #fff; color: #64748b;
+  border-radius: 8px; padding: 6px 14px; font-size: .8rem;
+  cursor: pointer; display: flex; align-items: center; gap: 5px;
+  transition: background .12s, border-color .12s;
+}
+.btn-new-chat:hover { background: #f8fafc; border-color: #cbd5e1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+
+  <!-- 헤더 -->
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <h5><i class="bi bi-stars me-2 text-primary"></i>AI 어시스턴트</h5>
+      <div class="sync-status mt-1">
+        <div class="sync-dot {% if synced_count > 0 %}synced{% endif %}" id="sync-dot"></div>
+        <span id="sync-label">
+          {% if synced_count > 0 %}
+            {{ synced_count }}개 항목 동기화됨
+          {% else %}
+            동기화 필요
+          {% endif %}
+        </span>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn-new-chat" onclick="newChat()">
+        <i class="bi bi-plus-lg"></i> 새 대화
+      </button>
+      <button class="btn btn-sm btn-outline-primary" onclick="startSync()" id="btn-sync">
+        <i class="bi bi-arrow-repeat me-1"></i>데이터 동기화
+      </button>
+    </div>
+  </div>
+
+  <!-- 동기화 진행 바 -->
+  <div class="sync-progress-bar" id="sync-bar">
+    <div class="sync-progress-fill" id="sync-fill" style="width:0%"></div>
+  </div>
+  <div id="sync-msg" class="text-muted small mb-2" style="display:none"></div>
+
+  <!-- 메시지 영역 -->
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-empty" id="chat-empty">
+      <i class="bi bi-stars"></i>
+      <h6>업무 어시스턴트에게 무엇이든 물어보세요</h6>
+      <p>요구사항, 작업일지, 할일 등 모든 업무 기록을 검색해 답변드립니다.<br>먼저 <strong>데이터 동기화</strong>를 실행해 주세요.</p>
+      <div class="suggestion-chips">
+        <div class="suggestion-chip" onclick="askSuggestion(this)">최근 작업일지 요약해줘</div>
+        <div class="suggestion-chip" onclick="askSuggestion(this)">진행 중인 할일 목록 알려줘</div>
+        <div class="suggestion-chip" onclick="askSuggestion(this)">완료되지 않은 목차 항목은?</div>
+        <div class="suggestion-chip" onclick="askSuggestion(this)">등록된 요구사항 개요 알려줘</div>
+        <div class="suggestion-chip" onclick="askSuggestion(this)">긴급 할일이 있나요?</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 입력창 -->
+  <div class="chat-input-area">
+    <textarea class="chat-textarea" id="chat-input" rows="1"
+              placeholder="질문을 입력하세요... (Shift+Enter: 줄바꿈)"
+              onkeydown="handleKey(event)"
+              oninput="autoResize(this)"></textarea>
+    <button class="btn-send" id="btn-send" onclick="sendMessage()" disabled>
+      <i class="bi bi-send-fill"></i>
+    </button>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let history = [];    // [{role, content}, ...]
+let isLoading = false;
+
+// ── 입력창 ──────────────────────────────────────────────────────────────────
+
+const textarea  = document.getElementById('chat-input');
+const btnSend   = document.getElementById('btn-send');
+
+textarea.addEventListener('input', () => {
+  btnSend.disabled = !textarea.value.trim() || isLoading;
+});
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── 메시지 전송 ──────────────────────────────────────────────────────────────
+
+async function sendMessage() {
+  const q = textarea.value.trim();
+  if (!q || isLoading) return;
+  textarea.value = '';
+  textarea.style.height = 'auto';
+  btnSend.disabled = true;
+  doSend(q);
+}
+
+function askSuggestion(el) { doSend(el.textContent); }
+
+async function doSend(query) {
+  hideEmpty();
+  isLoading = true;
+
+  // 사용자 메시지 추가
+  appendMsg('user', query);
+  history.push({ role: 'user', content: query });
+
+  // 로딩 버블
+  const loadId = appendLoading();
+
+  try {
+    const res  = await fetch('/api/chat/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, history }),
+    });
+    const data = await res.json();
+    removeLoading(loadId);
+
+    if (data.error) {
+      appendMsg('assistant', `⚠️ ${data.error}`, []);
+      history.push({ role: 'model', content: data.error });
+    } else {
+      appendMsg('assistant', data.answer, data.sources || []);
+      history.push({ role: 'model', content: data.answer });
+    }
+  } catch (e) {
+    removeLoading(loadId);
+    appendMsg('assistant', '⚠️ 서버 오류가 발생했습니다.', []);
+  }
+
+  isLoading = false;
+  btnSend.disabled = !textarea.value.trim();
+}
+
+// ── 메시지 렌더 ──────────────────────────────────────────────────────────────
+
+function hideEmpty() {
+  document.getElementById('chat-empty').style.display = 'none';
+}
+
+function appendMsg(role, text, sources = []) {
+  const wrap = document.getElementById('chat-messages');
+  const div  = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const avatar = role === 'user' ? '나' : 'AI';
+  const bubble = role === 'assistant' ? markdownToHtml(text) : escHtml(text);
+
+  let sourcesHtml = '';
+  if (sources && sources.length) {
+    const cards = sources.map(s => `
+      <a class="source-card" href="${escHtml(s.source_url || '#')}" target="_self">
+        <span class="source-type-badge type-${s.source_type}">${typeLabel(s.source_type)}</span>
+        <span class="source-label">${escHtml(s.source_label || '')}</span>
+        <span class="source-score">${Math.round((s.score||0)*100)}%</span>
+      </a>`).join('');
+    sourcesHtml = `<div class="sources-wrap">${cards}</div>`;
+  }
+
+  div.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${bubble}</div>
+      ${sourcesHtml}
+    </div>`;
+
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function appendLoading() {
+  const id   = 'load-' + Date.now();
+  const wrap = document.getElementById('chat-messages');
+  const div  = document.createElement('div');
+  div.id        = id;
+  div.className = 'msg assistant';
+  div.innerHTML = `
+    <div class="msg-avatar">AI</div>
+    <div class="msg-body">
+      <div class="msg-bubble" style="padding:12px 16px">
+        <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+      </div>
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return id;
+}
+
+function removeLoading(id) {
+  document.getElementById(id)?.remove();
+}
+
+// ── 새 대화 ──────────────────────────────────────────────────────────────────
+
+function newChat() {
+  history = [];
+  const wrap = document.getElementById('chat-messages');
+  wrap.querySelectorAll('.msg').forEach(m => m.remove());
+  document.getElementById('chat-empty').style.display = '';
+}
+
+// ── 동기화 ───────────────────────────────────────────────────────────────────
+
+function startSync() {
+  const btn  = document.getElementById('btn-sync');
+  const bar  = document.getElementById('sync-bar');
+  const fill = document.getElementById('sync-fill');
+  const msg  = document.getElementById('sync-msg');
+  const dot  = document.getElementById('sync-dot');
+  const lbl  = document.getElementById('sync-label');
+
+  btn.disabled = true;
+  bar.style.display = 'block';
+  msg.style.display = 'block';
+  dot.className = 'sync-dot syncing';
+  lbl.textContent = '동기화 중...';
+  fill.style.width = '0%';
+
+  const es = new EventSource('/api/chat/sync');
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'progress') {
+      const pct = Math.round(d.current / d.total * 100);
+      fill.style.width = pct + '%';
+      msg.textContent  = `(${d.current}/${d.total}) ${d.label}`;
+    } else if (d.type === 'done') {
+      fill.style.width = '100%';
+      dot.className    = 'sync-dot synced';
+      lbl.textContent  = `${d.total}개 항목 동기화됨`;
+      msg.textContent  = '동기화 완료!';
+      setTimeout(() => { bar.style.display = 'none'; msg.style.display = 'none'; }, 2000);
+      btn.disabled = false;
+      es.close();
+    } else if (d.type === 'error') {
+      dot.className   = 'sync-dot';
+      lbl.textContent = '동기화 실패';
+      msg.textContent = `오류: ${d.msg}`;
+      btn.disabled    = false;
+      es.close();
+    }
+  };
+  es.onerror = () => {
+    msg.textContent = '연결 오류';
+    btn.disabled    = false;
+    es.close();
+  };
+}
+
+// ── 유틸 ─────────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function typeLabel(t) {
+  return { requirement:'요구사항', toc:'목차', worklog:'작업일지', todo:'할일', business_info:'사업정보' }[t] || t;
+}
+
+function markdownToHtml(text) {
+  const lines = text.split('\n');
+  const out   = [];
+  let inUl = false, inOl = false;
+
+  const flushList = () => {
+    if (inUl) { out.push('</ul>'); inUl = false; }
+    if (inOl) { out.push('</ol>'); inOl = false; }
+  };
+
+  const inline = s =>
+    escHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+      .replace(/`(.+?)`/g,       '<code>$1</code>');
+
+  for (const line of lines) {
+    if (/^---+$/.test(line.trim())) {
+      flushList(); out.push('<hr class="md-hr">'); continue;
+    }
+    let m;
+    if ((m = line.match(/^## (.+)/))) {
+      flushList(); out.push(`<div class="md-h2">${inline(m[1])}</div>`); continue;
+    }
+    if ((m = line.match(/^### (.+)/))) {
+      flushList(); out.push(`<div class="md-h3">${inline(m[1])}</div>`); continue;
+    }
+    if ((m = line.match(/^# (.+)/))) {
+      flushList(); out.push(`<div class="md-h2">${inline(m[1])}</div>`); continue;
+    }
+    if ((m = line.match(/^[-*] (.+)/))) {
+      if (inOl) { out.push('</ol>'); inOl = false; }
+      if (!inUl) { out.push('<ul>'); inUl = true; }
+      out.push(`<li>${inline(m[1])}</li>`); continue;
+    }
+    if ((m = line.match(/^(\d+)\. (.+)/))) {
+      if (inUl) { out.push('</ul>'); inUl = false; }
+      if (!inOl) { out.push('<ol>'); inOl = true; }
+      out.push(`<li>${inline(m[2])}</li>`); continue;
+    }
+    if (!line.trim()) {
+      flushList(); continue;
+    }
+    flushList();
+    out.push(`<p>${inline(line)}</p>`);
+  }
+
+  flushList();
+  return out.join('');
+}
+</script>
+{% endblock %}

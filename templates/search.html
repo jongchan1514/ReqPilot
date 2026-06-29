@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}전체 검색 — 요구사항 관리{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="fw-bold mb-1"><i class="bi bi-search me-2"></i>전체 검색</h4>
+  <div class="text-muted small">프로젝트 전체에 걸쳐 요구사항을 검색합니다</div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body p-4">
+    <div class="row g-2 align-items-end">
+      <div class="col">
+        <label class="form-label fw-semibold">검색어</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="search-input" type="text" class="form-control form-control-lg"
+                 placeholder="요구사항 번호, 명칭, 세부내용 검색..." autofocus>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">프로젝트 필터</label>
+        <select id="project-filter" class="form-select">
+          <option value="">전체 프로젝트</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button id="btn-search" class="btn btn-primary btn-lg px-4">검색</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="result-area"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadProjects() {
+  const res = await fetch('/api/projects/list');
+  const projects = await res.json();
+  const sel = document.getElementById('project-filter');
+  projects.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  });
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlight(text, kw) {
+  if (!kw || !text) return esc(text);
+  const safe = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return esc(text).replace(new RegExp(safe, 'gi'), m => `<mark class="bg-warning px-0">${m}</mark>`);
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  const projectId = document.getElementById('project-filter').value;
+  const area = document.getElementById('result-area');
+
+  if (q.length < 2) {
+    area.innerHTML = '<div class="alert alert-info">검색어를 2자 이상 입력해주세요.</div>';
+    return;
+  }
+
+  area.innerHTML = '<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>검색 중...</div>';
+
+  const params = new URLSearchParams({q});
+  if (projectId) params.set('project_id', projectId);
+  const res = await fetch(`/api/search?${params}`);
+  const data = await res.json();
+
+  if (!data.total) {
+    area.innerHTML = `<div class="card"><div class="card-body empty-state"><i class="bi bi-search"></i>
+      "<strong>${esc(q)}</strong>" 에 대한 검색 결과가 없습니다.</div></div>`;
+    return;
+  }
+
+  let html = `<div class="text-muted small mb-3">총 <strong>${data.total}</strong>개 결과</div>`;
+
+  for (const group of data.results) {
+    html += `
+      <div class="card mb-3">
+        <div class="card-header py-2 d-flex align-items-center gap-2">
+          <i class="bi bi-folder2-open text-warning"></i>
+          <a href="/project/${group.project_id}" class="text-decoration-none fw-semibold">${esc(group.project_name)}</a>
+          <span class="text-muted mx-1">/</span>
+          <i class="bi bi-file-earmark-pdf text-danger"></i>
+          <a href="/project/${group.project_id}/pdf/${group.pdf_id}" class="text-decoration-none">${esc(group.original_name)}</a>
+          <span class="badge bg-secondary ms-auto">${group.requirements.length}건</span>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th style="width:150px">고유번호</th>
+                <th style="width:240px">명칭</th>
+                <th>세부내용</th>
+              </tr>
+            </thead>
+            <tbody>`;
+    for (const r of group.requirements) {
+      const detailSnippet = snippet(r.detail, q);
+      html += `<tr style="cursor:pointer" onclick="location.href='/project/${group.project_id}/pdf/${group.pdf_id}'">
+        <td><code>${highlight(r.req_id, q)}</code></td>
+        <td>${highlight(r.req_name, q)}</td>
+        <td style="font-size:.82rem">${highlight(detailSnippet, q)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
+
+  area.innerHTML = html;
+}
+
+function snippet(text, kw) {
+  if (!text || !kw) return (text||'').slice(0,120);
+  const idx = text.toLowerCase().indexOf(kw.toLowerCase());
+  if (idx === -1) return text.slice(0,120) + (text.length>120?'…':'');
+  const start = Math.max(0, idx-40);
+  const end = Math.min(text.length, idx+kw.length+80);
+  return (start>0?'…':'')+text.slice(start,end)+(end<text.length?'…':'');
+}
+
+document.getElementById('btn-search').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+loadProjects();
+</script>
+{% endblock %}
