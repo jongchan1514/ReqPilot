@@ -11,6 +11,7 @@ from logging.handlers import RotatingFileHandler
 from flask import (Flask, render_template, request, jsonify, g,
                    Response, stream_with_context, abort, send_file, redirect, url_for)
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 from sqlalchemy import or_, text
 from models import db, Project, PdfDocument, Requirement, TOCItem, BusinessInfo, ReqTypeRule, ProjectAttachment, ATTACHMENT_SLOTS, ProposalAnalysis, toc_requirement, TodoItem, WorkLog, VectorChunk
 from gemini_service import extract_all
@@ -67,7 +68,8 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(_INSTANCE_DIR, "req_manager.db")}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(_BASE_DIR, 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+UPLOAD_LIMIT_MB = int(os.environ.get('MAX_UPLOAD_MB', '300'))
+app.config['MAX_CONTENT_LENGTH'] = UPLOAD_LIMIT_MB * 1024 * 1024
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 SAVED_DIR = os.path.join(_BASE_DIR, 'uploads', 'saved')
@@ -342,6 +344,13 @@ with app.app_context():
 
 
 # ── 글로벌 에러 핸들러 ─────────────────────────────────────────────────────────
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(e):
+    return jsonify({
+        'error': f'파일 크기가 너무 큽니다. 최대 {UPLOAD_LIMIT_MB}MB까지 업로드할 수 있습니다.'
+    }), 413
+
 
 @app.errorhandler(Exception)
 def handle_exception(e):

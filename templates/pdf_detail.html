@@ -1917,7 +1917,14 @@ async function submitAttach() {
     const badge = document.getElementById('attach-badge');
     if (badge) badge.textContent = Object.values(attachData).filter(Boolean).length;
     renderAttachManageBody(); }
-  else { alert('업로드에 실패했습니다.'); }
+  else {
+    let msg = '업로드에 실패했습니다.';
+    try {
+      const data = await res.json();
+      if (data.error) msg = data.error;
+    } catch (e) {}
+    alert(msg);
+  }
   btn.disabled = false; btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
 }
 async function deleteAttachment(slot) {

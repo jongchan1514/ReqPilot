@@ -38,6 +38,7 @@ copy .env.example .env
 
 - `GEMINI_API_KEY`: Gemini API 키
 - `SECRET_KEY`: Flask 세션 및 로컬 인증에 사용할 임의의 비밀 키
+- `MAX_UPLOAD_MB`: 업로드 가능한 최대 파일 크기(MB). 기본값은 `300`입니다.
 
 ## 실행
 
