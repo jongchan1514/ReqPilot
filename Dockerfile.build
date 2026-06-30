@@ -1,0 +1,47 @@
+FROM rockylinux:8
+
+LABEL description="ReqPilot PyInstaller build — Rocky Linux 8"
+
+# ── 시스템 패키지 ────────────────────────────────────────────────────────────
+RUN dnf install -y dnf-plugins-core epel-release && \
+    dnf config-manager --set-enabled powertools && \
+    dnf module enable -y python311 2>/dev/null || true && \
+    dnf install -y \
+        python3.11 \
+        python3.11-devel \
+        gcc \
+        gcc-c++ \
+        make \
+        libffi-devel \
+        openssl-devel \
+        zlib-devel \
+        bzip2-devel \
+        binutils \
+        git \
+        patchelf && \
+    dnf clean all
+
+RUN python3.11 -m ensurepip --upgrade && \
+    python3.11 -m pip install --upgrade pip setuptools wheel
+
+# ── CPU-only PyTorch (CUDA 버전 대비 ~3GB 절약) ──────────────────────────────
+RUN python3.11 -m pip install \
+    torch \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --no-cache-dir
+
+# ── 앱 의존성 ────────────────────────────────────────────────────────────────
+WORKDIR /build
+COPY requirements.txt .
+RUN python3.11 -m pip install -r requirements.txt --no-cache-dir
+
+# ── PyInstaller ──────────────────────────────────────────────────────────────
+RUN python3.11 -m pip install "pyinstaller>=6.0" --no-cache-dir
+
+# ── 소스 복사 & 빌드 ─────────────────────────────────────────────────────────
+COPY . .
+RUN python3.11 -m PyInstaller app.spec --clean --noconfirm
+
+# 빌드 결과를 /output 볼륨으로 복사
+VOLUME ["/output"]
+CMD cp -r /build/dist/reqpilot /output/

@@ -18,6 +18,7 @@ env/
 build/
 dist/
 *.spec
+!app.spec
 
 *.db
 *.sqlite
