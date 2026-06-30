@@ -13,8 +13,9 @@ from flask import (Flask, render_template, request, jsonify, g,
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 from sqlalchemy import or_, text
-from models import db, Project, PdfDocument, Requirement, TOCItem, BusinessInfo, ReqTypeRule, ProjectAttachment, ATTACHMENT_SLOTS, ProposalAnalysis, toc_requirement, TodoItem, WorkLog, VectorChunk
+from models import db, Project, PdfDocument, Requirement, TOCItem, BusinessInfo, ReqTypeRule, ProjectAttachment, ATTACHMENT_SLOTS, ProjectFileAttachment, PROJECT_FILE_CATEGORIES, ProposalAnalysis, RequirementProposalImage, toc_requirement, TodoItem, WorkLog, VectorChunk
 from gemini_service import extract_all
+from proposal_image_service import ProposalImageDependencyError, render_requirement_proposal_image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -65,7 +66,8 @@ logger = logging.getLogger(__name__)
 # werkzeug 로그도 파일에 기록
 logging.getLogger('werkzeug').addHandler(_file_handler)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(_INSTANCE_DIR, "req_manager.db")}'
+_default_db = f'sqlite:///{os.path.join(_INSTANCE_DIR, "req_manager.db")}'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', _default_db)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(_BASE_DIR, 'uploads')
 UPLOAD_LIMIT_MB = int(os.environ.get('MAX_UPLOAD_MB', '300'))
@@ -82,8 +84,10 @@ def _gen_local_token() -> str:
     secret  = app.config.get('SECRET_KEY', 'dev-secret')
     return hashlib.sha256(f"{mac_str}:{secret}".encode()).hexdigest()[:40]
 
-_LOCAL_TOKEN = _gen_local_token()
-_PROTECTED_PREFIXES = ('/todos', '/worklog', '/chat', '/api/todos', '/api/worklogs', '/api/chat')
+_LOCAL_TOKEN    = _gen_local_token()
+_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
+_PROTECTED_PREFIXES = ('/todos', '/worklog', '/chat', '/calendar',
+                        '/api/todos', '/api/worklogs', '/api/chat', '/api/dashboard')
 
 def _collect_local_ips() -> set:
     """이 머신에 할당된 모든 IP 주소 수집 (127.0.0.1, LAN IP 등)"""
@@ -93,7 +97,6 @@ def _collect_local_ips() -> set:
         hostname = socket.gethostname()
         for info in socket.getaddrinfo(hostname, None):
             ips.add(info[4][0])
-        # 추가: 소켓으로 외부 연결 시 사용되는 로컬 IP
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(('8.8.8.8', 80))
             ips.add(s.getsockname()[0])
@@ -110,18 +113,24 @@ def _is_local_request() -> bool:
 def _has_local_auth() -> bool:
     return request.cookies.get('_lat') == _LOCAL_TOKEN
 
+def _is_admin() -> bool:
+    """로컬 IP, 로컬 쿠키, 또는 세션 로그인 중 하나면 관리자"""
+    from flask import session as _sess
+    return _is_local_request() or _has_local_auth() or _sess.get('is_admin') is True
+
 @app.before_request
 def _check_local_auth():
-    """보호된 경로 접근 시 로컬 인증 확인"""
+    """보호된 경로 접근 시 인증 확인"""
+    if request.path in ('/login', '/logout'):
+        return
     if not any(request.path.startswith(p) for p in _PROTECTED_PREFIXES):
         return
-    if _is_local_request() or _has_local_auth():
+    if _is_admin():
         g.set_local_cookie = _is_local_request() and not _has_local_auth()
         return
-    # 비인가 접근 차단
     if request.path.startswith('/api/'):
         return jsonify({'error': '접근 권한이 없습니다.'}), 403
-    return render_template('403.html'), 403
+    return redirect(f'/login?next={request.path}')
 
 @app.after_request
 def _issue_local_cookie(response):
@@ -136,12 +145,44 @@ def _issue_local_cookie(response):
 
 @app.context_processor
 def _inject_local_auth():
-    """템플릿에서 is_local_user 변수 사용 가능"""
-    return {'is_local_user': _is_local_request() or _has_local_auth()}
+    """템플릿에서 is_local_user / is_session_login 변수 사용 가능"""
+    from flask import session as _sess
+    return {
+        'is_local_user':    _is_admin(),
+        'is_session_login': _sess.get('is_admin') is True and not _is_local_request(),
+    }
+
+# ── 로그인 / 로그아웃 ─────────────────────────────────────────────────────────
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    from flask import session as _sess
+    if _is_admin():
+        return redirect('/')
+    error = None
+    if request.method == 'POST':
+        pw = request.form.get('password', '')
+        if _ADMIN_PASSWORD and pw == _ADMIN_PASSWORD:
+            _sess['is_admin'] = True
+            _sess.permanent = True
+            next_url = request.args.get('next', '/')
+            return redirect(next_url)
+        error = '비밀번호가 올바르지 않습니다.'
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout_page():
+    from flask import session as _sess
+    _sess.pop('is_admin', None)
+    return redirect('/')
 ATTACH_DIR = os.path.join(_BASE_DIR, 'uploads', 'attachments')
+GENERATED_DIR = os.path.join(_BASE_DIR, 'uploads', 'generated')
+PROJECT_FILE_DIR = os.path.join(_BASE_DIR, 'uploads', 'project_files')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(SAVED_DIR, exist_ok=True)
 os.makedirs(ATTACH_DIR, exist_ok=True)
+os.makedirs(GENERATED_DIR, exist_ok=True)
+os.makedirs(PROJECT_FILE_DIR, exist_ok=True)
 
 db.init_app(app)
 
@@ -161,6 +202,17 @@ def _migrate(conn):
             full_count INTEGER DEFAULT 0,
             partial_count INTEGER DEFAULT 0,
             missing_count INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS requirement_proposal_image (
+            id INTEGER PRIMARY KEY,
+            requirement_id INTEGER NOT NULL REFERENCES requirement(id) ON DELETE CASCADE,
+            orientation VARCHAR(20) DEFAULT 'landscape',
+            template_type VARCHAR(50) DEFAULT 'auto',
+            tone VARCHAR(50) DEFAULT 'public',
+            title VARCHAR(500),
+            saved_filename VARCHAR(500) NOT NULL,
+            payload_json TEXT,
+            created_at DATETIME
         )""",
         """CREATE TABLE IF NOT EXISTS req_type_rule (
             id INTEGER PRIMARY KEY,
@@ -210,10 +262,21 @@ def _migrate(conn):
             embedding TEXT,
             updated_at DATETIME
         )""",
+        """CREATE TABLE IF NOT EXISTS project_file_attachment (
+            id INTEGER PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            category VARCHAR(30) NOT NULL,
+            original_name VARCHAR(500) NOT NULL,
+            saved_filename VARCHAR(500) NOT NULL,
+            uploaded_at DATETIME
+        )""",
         # unique constraint 추가 (없으면 생성)
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_vector_chunk_src ON vector_chunk(source_type, source_id)",
         "ALTER TABLE vector_chunk ADD COLUMN source_date DATETIME",
         "ALTER TABLE todo_item ADD COLUMN start_date VARCHAR(20)",
+        "ALTER TABLE requirement ADD COLUMN status VARCHAR(20) DEFAULT '신규'",
+        "ALTER TABLE requirement ADD COLUMN priority VARCHAR(20) DEFAULT '보통'",
+        "ALTER TABLE requirement ADD COLUMN note TEXT",
     ]
     for sql in migrations:
         try:
@@ -600,6 +663,14 @@ def api_project_delete(pid):
             fp = os.path.join(SAVED_DIR, pdf.saved_filename)
             if os.path.exists(fp):
                 os.remove(fp)
+    for att in p.attachments:
+        fp = os.path.join(ATTACH_DIR, att.saved_filename)
+        if os.path.exists(fp):
+            os.remove(fp)
+    for item in p.file_attachments:
+        fp = os.path.join(PROJECT_FILE_DIR, item.saved_filename)
+        if os.path.exists(fp):
+            os.remove(fp)
     db.session.delete(p)
     db.session.commit()
     return jsonify({'success': True})
@@ -666,8 +737,87 @@ def api_attachment_delete(project_id, slot):
     att = ProjectAttachment.query.filter_by(project_id=project_id, slot=slot).first_or_404()
     path = os.path.join(ATTACH_DIR, att.saved_filename)
     if os.path.exists(path):
-        os.remove(path)
+        try:
+            os.remove(path)
+        except PermissionError:
+            return jsonify({'error': '파일이 사용 중이라 삭제할 수 없습니다. 파일을 닫은 뒤 다시 시도하세요.'}), 409
     db.session.delete(att)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ── Project File Box API ─────────────────────────────────────────────────────
+
+@app.route('/api/project/<int:project_id>/filebox')
+def api_project_filebox_list(project_id):
+    db.get_or_404(Project, project_id)
+    rows = ProjectFileAttachment.query.filter_by(project_id=project_id) \
+        .order_by(ProjectFileAttachment.uploaded_at.desc(), ProjectFileAttachment.id.desc()).all()
+    result = {
+        key: {
+            'label': label,
+            'description': description,
+            'files': [],
+        }
+        for key, (label, description) in PROJECT_FILE_CATEGORIES.items()
+    }
+    for row in rows:
+        if row.category not in result:
+            result[row.category] = {
+                'label': row.category,
+                'description': '',
+                'files': [],
+            }
+        result[row.category]['files'].append(row.to_dict())
+    return jsonify(result)
+
+
+@app.route('/api/project/<int:project_id>/filebox/<category>', methods=['POST'])
+def api_project_filebox_upload(project_id, category):
+    if category not in PROJECT_FILE_CATEGORIES:
+        return jsonify({'error': '잘못된 파일함 영역입니다.'}), 400
+    db.get_or_404(Project, project_id)
+
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': '파일을 선택하세요.'}), 400
+
+    ext = os.path.splitext(secure_filename(f.filename))[1]
+    saved_name = f'{uuid.uuid4().hex}{ext}'
+    f.save(os.path.join(PROJECT_FILE_DIR, saved_name))
+
+    item = ProjectFileAttachment(
+        project_id=project_id,
+        category=category,
+        original_name=f.filename,
+        saved_filename=saved_name,
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify(item.to_dict()), 201
+
+
+@app.route('/api/project/<int:project_id>/filebox/<int:file_id>/file')
+def api_project_filebox_file(project_id, file_id):
+    item = ProjectFileAttachment.query.filter_by(
+        id=file_id, project_id=project_id).first_or_404()
+    path = os.path.join(PROJECT_FILE_DIR, item.saved_filename)
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, download_name=item.original_name, as_attachment=True)
+
+
+@app.route('/api/project/<int:project_id>/filebox/<int:file_id>', methods=['DELETE'])
+def api_project_filebox_delete(project_id, file_id):
+    item = ProjectFileAttachment.query.filter_by(
+        id=file_id, project_id=project_id).first_or_404()
+    path = os.path.join(PROJECT_FILE_DIR, item.saved_filename)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except PermissionError:
+            return jsonify({'error': '파일이 사용 중이라 삭제할 수 없습니다. 파일을 닫은 뒤 다시 시도하세요.'}), 409
+    db.session.delete(item)
     db.session.commit()
     return jsonify({'success': True})
 
@@ -797,15 +947,231 @@ def api_req_update(rid):
     r.req_name = (data.get('req_name') or r.req_name).strip()
     r.detail = data.get('detail', r.detail)
     db.session.commit()
+    _upsert_chunk('requirement', r.id)
     return jsonify({'success': True})
 
 
 @app.route('/api/requirements/<int:rid>', methods=['DELETE'])
 def api_req_delete(rid):
     r = db.get_or_404(Requirement, rid)
+    _delete_chunk('requirement', r.id)
     db.session.delete(r)
     db.session.commit()
     return jsonify({'success': True})
+
+
+# ── Requirements + TOC Excel Export ──────────────────────────────────────────
+
+@app.route('/api/pdf/<int:pdf_id>/export/excel')
+def api_pdf_export_excel(pdf_id):
+    pdf = db.get_or_404(PdfDocument, pdf_id)
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
+    wb = openpyxl.Workbook()
+
+    hdr_fill = PatternFill('solid', fgColor='1E293B')
+    hdr_font = Font(bold=True, color='FFFFFF', size=10)
+    left_al  = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ctr_al   = Alignment(horizontal='center', vertical='center')
+    thin     = Side(style='thin', color='CBD5E1')
+    bdr      = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def write_header(ws, headers, widths):
+        for col, (h, w) in enumerate(zip(headers, widths), 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.font = hdr_font; c.fill = hdr_fill
+            c.alignment = ctr_al; c.border = bdr
+            ws.column_dimensions[get_column_letter(col)].width = w
+        ws.row_dimensions[1].height = 22
+        ws.freeze_panes = 'A2'
+
+    # ── Sheet 1: 요구사항 목록 ─────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = '요구사항 목록'
+    write_header(ws1,
+        ['No', '고유번호', '명칭', '세부내용'],
+        [5,     18,        40,     80])
+
+    reqs = Requirement.query.filter_by(pdf_id=pdf_id).order_by(Requirement.id).all()
+    for i, r in enumerate(reqs, 2):
+        vals = [i - 1, r.req_id, r.req_name, r.detail or '']
+        for col, val in enumerate(vals, 1):
+            c = ws1.cell(row=i, column=col, value=val)
+            c.border = bdr
+            c.alignment = ctr_al if col == 1 else left_al
+        ws1.row_dimensions[i].height = 40
+
+    # ── Sheet 2: 목차 현황 ─────────────────────────────────────────
+    ws2 = wb.create_sheet('목차 현황')
+    write_header(ws2,
+        ['No', '1단계', '2단계', '3단계', '작업상태', '쪽수', '연결 요구사항'],
+        [5,     25,      25,      30,       11,          8,       30])
+
+    TOC_COLORS = {
+        '신규':   ('DBEAFE', '1D4ED8'),
+        '수정필요': ('FEF3C7', '92400E'),
+        '작업중':  ('F3E8FF', '6B21A8'),
+        '완료':   ('DCFCE7', '166534'),
+    }
+    tocs = TOCItem.query.filter_by(pdf_id=pdf_id).order_by(TOCItem.order_index, TOCItem.id).all()
+    for i, t in enumerate(tocs, 2):
+        req_labels = ', '.join(r.req_id for r in t.requirements)
+        vals = [i - 1, t.depth1 or '', t.depth2 or '', t.depth3 or '',
+                t.work_status or '신규', t.page_number or '', req_labels]
+        for col, val in enumerate(vals, 1):
+            c = ws2.cell(row=i, column=col, value=val)
+            c.border = bdr
+            c.alignment = ctr_al if col in (1, 5, 6) else left_al
+        t_bg, t_fg = TOC_COLORS.get(t.work_status or '신규', ('F1F5F9', '475569'))
+        ws2.cell(row=i, column=5).fill = PatternFill('solid', fgColor=t_bg)
+        ws2.cell(row=i, column=5).font = Font(bold=True, color=t_fg, size=9)
+        ws2.row_dimensions[i].height = 30
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    safe_name = pdf.original_name.rsplit('.', 1)[0] if '.' in pdf.original_name else pdf.original_name
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f'{safe_name}_요구사항.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+# ── Dashboard API ─────────────────────────────────────────────────────────────
+
+@app.route('/api/dashboard')
+def api_dashboard():
+    from datetime import date, timedelta
+    today = date.today()
+    soon  = today + timedelta(days=7)
+    today_str = today.isoformat()
+    soon_str  = soon.isoformat()
+
+    # 마감 임박 할일 (오늘~7일 이내 + 이미 지난 것 포함)
+    todos = TodoItem.query.filter(
+        TodoItem.status != '완료',
+        TodoItem.due_date != '',
+        TodoItem.due_date != None,
+        TodoItem.due_date <= soon_str,
+    ).order_by(TodoItem.due_date).limit(10).all()
+
+    # 최근 작업일지
+    worklogs = WorkLog.query.order_by(WorkLog.created_at.desc()).limit(5).all()
+
+    # 프로젝트별 TOC 완료율 (PDF별로 계산)
+    projects = Project.query.order_by(Project.created_at.desc()).all()
+    proj_stats = []
+    for p in projects:
+        # TOC가 있는 PDF 중 가장 최근 업로드(id 최대) 하나만 사용
+        pdfs_with_toc = [pdf for pdf in p.pdfs if pdf.toc_items]
+        pdf_toc = []
+        if pdfs_with_toc:
+            pdf = max(pdfs_with_toc, key=lambda x: x.id)
+            items = pdf.toc_items
+            leaf = [t for t in items if t.depth3] or items
+            d1_done = {t.depth1 for t in items if not t.depth2 and not t.depth3 and t.work_status == '완료'}
+            d2_done = {(t.depth1, t.depth2) for t in items if t.depth2 and not t.depth3 and t.work_status == '완료'}
+            done = sum(
+                1 for t in leaf
+                if t.work_status == '완료'
+                or t.depth1 in d1_done
+                or (t.depth1, t.depth2) in d2_done
+            )
+            pdf_toc.append({
+                'id':        pdf.id,
+                'name':      pdf.original_name,
+                'toc_total': len(leaf),
+                'toc_done':  done,
+            })
+        req_total = sum(len(pdf.requirements) for pdf in p.pdfs)
+        proj_stats.append({
+            **p.to_dict(),
+            'pdf_toc':  pdf_toc,
+            'req_total': req_total,
+        })
+
+    return jsonify({
+        'todo_upcoming': [t.to_dict() for t in todos],
+        'worklog_recent': [w.to_dict() for w in worklogs],
+        'projects': proj_stats,
+        'today': today_str,
+    })
+
+
+# ── Requirement Proposal Image API ───────────────────────────────────────────
+
+def _pick_option(value, allowed, default):
+    return value if value in allowed else default
+
+
+@app.route('/api/requirements/<int:rid>/proposal-images')
+def api_req_proposal_images(rid):
+    db.get_or_404(Requirement, rid)
+    rows = RequirementProposalImage.query.filter_by(requirement_id=rid) \
+        .order_by(RequirementProposalImage.created_at.desc(), RequirementProposalImage.id.desc()).all()
+    return jsonify([r.to_dict() for r in rows])
+
+
+@app.route('/api/requirements/<int:rid>/proposal-image', methods=['POST'])
+def api_req_proposal_image_create(rid):
+    req = db.get_or_404(Requirement, rid)
+    data = request.get_json() or {}
+    orientation = _pick_option(data.get('orientation'), {'landscape', 'portrait'}, 'landscape')
+    template_type = _pick_option(data.get('template_type'), {'auto', 'function', 'architecture', 'checklist'}, 'auto')
+    tone = _pick_option(data.get('tone'), {'public', 'technical', 'concise'}, 'public')
+
+    from gemini_service import generate_requirement_proposal_content
+
+    options = {
+        'orientation': orientation,
+        'template_type': template_type,
+        'tone': tone,
+    }
+    content = generate_requirement_proposal_content(req.to_dict(), options, GEMINI_API_KEY)
+
+    saved_filename = f'{uuid.uuid4().hex}.png'
+    output_path = os.path.join(GENERATED_DIR, saved_filename)
+    try:
+        render_requirement_proposal_image(
+            content=content,
+            requirement=req.to_dict(),
+            orientation=orientation,
+            template_type=template_type,
+            tone=tone,
+            output_path=output_path,
+        )
+    except ProposalImageDependencyError as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return jsonify({'error': str(e)}), 500
+
+    record = RequirementProposalImage(
+        requirement_id=req.id,
+        orientation=orientation,
+        template_type=template_type,
+        tone=tone,
+        title=content.get('title') or f'{req.req_id} {req.req_name}',
+        saved_filename=saved_filename,
+        payload_json=json.dumps(content, ensure_ascii=False),
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({'success': True, 'image': record.to_dict()})
+
+
+@app.route('/api/proposal-images/<int:image_id>/file')
+def api_proposal_image_file(image_id):
+    image = db.get_or_404(RequirementProposalImage, image_id)
+    path = os.path.join(GENERATED_DIR, image.saved_filename)
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype='image/png',
+                     download_name=f'req_proposal_{image.id}.png')
 
 
 # ── 요구사항 ↔ 목차 매핑 API ──────────────────────────────────────────────────
@@ -1783,6 +2149,11 @@ def api_verify_result(task_id):
 # 할일 목록 (Todo)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.route('/calendar')
+def calendar_page():
+    return render_template('calendar.html')
+
+
 @app.route('/todos')
 def todos_page():
     return render_template('todos.html')
@@ -1989,7 +2360,7 @@ def api_chat_ask():
 
     from rag_service import answer
     try:
-        result = answer(query, history, GEMINI_API_KEY)
+        result = answer(query, history, GEMINI_API_KEY, use_local=_is_local_request())
         return jsonify(result)
     except Exception as e:
         logger.error("RAG 답변 오류: %s", e)

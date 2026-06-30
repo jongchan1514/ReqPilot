@@ -469,3 +469,102 @@ def generate_action_summary(results: dict, api_key: str) -> dict:
     except Exception as e:
         logger.warning("generate_action_summary 실패: %s", e)
         return {}
+
+
+def _fallback_proposal_image_content(requirement: dict, options: dict | None = None) -> dict:
+    req_id = requirement.get('req_id') or 'REQ'
+    req_name = requirement.get('req_name') or '요구사항'
+    detail = (requirement.get('detail') or '').strip()
+    summary = detail[:180] if detail else f'{req_name}을 충족하기 위한 제안 구성안을 제시합니다.'
+    return {
+        'title': f'{req_id} {req_name}',
+        'subtitle': '요구사항 충족을 위한 제안 장표 초안',
+        'proposal_summary': summary,
+        'sections': [
+            {
+                'heading': '요구사항 해석',
+                'body': '요구사항의 목적과 적용 범위를 명확히 정의하고, 제안 범위 안에서 충족 기준을 구체화합니다.',
+            },
+            {
+                'heading': '제안 내용',
+                'body': '업무 흐름, 사용자 경험, 시스템 구성 요소를 기준으로 실행 가능한 기능과 산출물을 제안합니다.',
+            },
+            {
+                'heading': '구현 방안',
+                'body': '표준 기술, 단계별 적용 절차, 검증 가능한 운영 기준을 통해 안정적인 구현 방안을 제공합니다.',
+            },
+            {
+                'heading': '기대 효과',
+                'body': '요구사항 충족 여부를 명확히 확인하고, 구축 이후 운영 효율성과 품질을 높일 수 있습니다.',
+            },
+        ],
+        'checklist': [
+            '요구사항 핵심 조건 반영',
+            '구현 범위와 산출물 명확화',
+            '검증 가능한 충족 기준 제시',
+            '운영 및 유지관리 관점 포함',
+        ],
+        'keywords': ['요구사항 충족', '구현 방안', '검증 기준', '운영 효율'],
+    }
+
+
+def generate_requirement_proposal_content(requirement: dict, options: dict, api_key: str) -> dict:
+    """요구사항을 충족하기 위한 제안 장표용 구조화 문구를 생성한다."""
+    if not api_key:
+        return _fallback_proposal_image_content(requirement, options)
+
+    _configure(api_key)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    orientation = options.get('orientation', 'landscape')
+    template_type = options.get('template_type', 'auto')
+    tone = options.get('tone', 'public')
+
+    prompt = f"""아래 요구사항을 충족하기 위한 제안서 장표 1장 분량의 내용을 작성하세요.
+디자인 자체는 별도 시스템이 처리하므로, 문구만 JSON으로 작성하세요.
+
+[요구사항]
+- ID: {requirement.get('req_id', '')}
+- 명칭: {requirement.get('req_name', '')}
+- 상세: {requirement.get('detail', '')}
+
+[생성 옵션]
+- 방향: {orientation} (landscape=가로형 16:9, portrait=세로형 A4)
+- 템플릿: {template_type}
+- 톤: {tone}
+
+[작성 원칙]
+- 공공/기술 제안서에 바로 붙일 수 있는 담백한 문장으로 작성
+- 허황된 수치나 검증되지 않은 효과를 만들지 말 것
+- 요구사항 충족 근거가 드러나게 작성
+- 각 body는 80~140자 정도로 짧게 작성
+- checklist는 4개, keywords는 4개 이내
+
+아래 JSON 형식으로만 반환하세요. 다른 설명 없이 JSON만 반환하세요.
+
+{{
+  "title": "장표 제목",
+  "subtitle": "짧은 부제",
+  "proposal_summary": "요구사항을 어떻게 충족할지 2문장 이내 요약",
+  "sections": [
+    {{"heading": "요구사항 해석", "body": "내용"}},
+    {{"heading": "제안 내용", "body": "내용"}},
+    {{"heading": "구현 방안", "body": "내용"}},
+    {{"heading": "기대 효과", "body": "내용"}}
+  ],
+  "checklist": ["충족 포인트 1", "충족 포인트 2", "충족 포인트 3", "충족 포인트 4"],
+  "keywords": ["키워드1", "키워드2", "키워드3", "키워드4"]
+}}"""
+
+    try:
+        resp = _generate_with_retry(model, [prompt])
+        data = _parse_json(resp.text)
+        if not isinstance(data, dict):
+            return _fallback_proposal_image_content(requirement, options)
+        data.setdefault('sections', [])
+        data.setdefault('checklist', [])
+        data.setdefault('keywords', [])
+        return data
+    except Exception as e:
+        logger.warning("generate_requirement_proposal_content 실패: %s", e)
+        return _fallback_proposal_image_content(requirement, options)

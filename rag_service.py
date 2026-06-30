@@ -2,10 +2,11 @@
 RAG (Retrieval-Augmented Generation) 서비스
 - sentence-transformers 로컬 모델로 벡터화 (API 비용 없음)
 - 코사인 유사도로 관련 청크 검색
-- Gemini Flash 로 답변 생성 + 출처 링크 포함
+- LLM 답변: LOCAL_LLM_URL 설정 시 Ollama(Qwen 등) 사용, 미설정 시 Gemini Fallback
 """
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta, date
 
@@ -15,8 +16,16 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 EMBED_MODEL_NAME = 'paraphrase-multilingual-MiniLM-L12-v2'
-CHAT_MODEL       = 'gemini-2.0-flash'
+CHAT_MODEL       = 'gemini-2.5-flash'
 TOP_K            = 8
+
+# 로컬 LLM (Ollama) 설정 — .env 에서 읽음
+LOCAL_LLM_URL   = os.environ.get('LOCAL_LLM_URL', '').rstrip('/')   # e.g. http://localhost:11434
+LOCAL_LLM_MODEL = os.environ.get('LOCAL_LLM_MODEL', 'qwen2.5:7b')
+
+# 청킹 설정
+CHUNK_MAX_CHARS = 500   # 서브청크 최대 길이 (문자 수)
+CHUNK_OVERLAP   = 50    # 서브청크 간 겹침 길이
 
 _embed_model = None   # 지연 로딩 (최초 호출 시 1회 초기화)
 
@@ -38,7 +47,42 @@ def _strip_html(html: str) -> str:
         return ''
     text = re.sub(r'<[^>]+>', ' ', html)
     text = re.sub(r'\s+', ' ', text).strip()
-    return text[:3000]
+    return text[:6000]
+
+
+def _fmt_date(dt) -> str:
+    """datetime/date → 'YYYY-MM-DD' 문자열. None이면 빈 문자열."""
+    if dt is None:
+        return ''
+    if hasattr(dt, 'date'):
+        return dt.date().isoformat()
+    return str(dt)[:10]
+
+
+def _split_text(text: str, max_chars: int = CHUNK_MAX_CHARS, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    긴 텍스트를 단락 우선으로 분할.
+    max_chars 이하이면 분할하지 않고 그대로 반환.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    # 단락(\n\n), 문장(. ), 공백 순으로 분할 경계 탐색
+    chunks, start = [], 0
+    while start < len(text):
+        end = min(start + max_chars, len(text))
+        if end < len(text):
+            # 단락 경계 우선
+            cut = text.rfind('\n\n', start, end)
+            if cut == -1:
+                cut = text.rfind('. ', start, end)
+            if cut == -1:
+                cut = text.rfind(' ', start, end)
+            if cut != -1 and cut > start:
+                end = cut + 1
+        chunks.append(text[start:end].strip())
+        start = max(start + 1, end - overlap)
+    return [c for c in chunks if c]
 
 
 # ── 임베딩 (로컬, API 비용 없음) ─────────────────────────────────────────────
@@ -151,8 +195,19 @@ def build_chunk_for(source_type: str, source_id: int) -> dict | None:
     return None
 
 
+def _make_chunks(base: dict, content: str, max_chars: int = CHUNK_MAX_CHARS) -> list[dict]:
+    """content를 분할해 서브청크 리스트 반환. base에 chunk_text 추가."""
+    parts = _split_text(content, max_chars)
+    if len(parts) == 1:
+        return [{**base, 'chunk_text': parts[0]}]
+    result = []
+    for i, part in enumerate(parts, 1):
+        result.append({**base, 'chunk_text': f"{part} ({i}/{len(parts)})"})
+    return result
+
+
 def build_chunks() -> list[dict]:
-    """DB 전체 데이터를 RAG 청크 목록으로 변환"""
+    """DB 전체 데이터를 RAG 청크 목록으로 변환 (긴 텍스트는 서브청크 분할)"""
     from models import Project, WorkLog, TodoItem
     chunks = []
 
@@ -164,15 +219,16 @@ def build_chunks() -> list[dict]:
             # 사업 정보
             if pdf.business_info:
                 bi = pdf.business_info
-                text = (
-                    f"[사업정보] 프로젝트: {proj.name} | 문서: {pdf.original_name}\n"
-                    f"사업명: {bi.business_name or ''}\n"
-                    f"발주기관: {bi.client or ''}\n"
-                    f"수행기관: {bi.contractor or ''}\n"
-                    f"사업기간: {bi.business_period or ''}\n"
-                    f"사업비: {bi.business_cost or ''}\n"
-                    f"개요: {bi.overview or ''}"
-                )
+                parts = [
+                    f"[사업정보] 프로젝트: {proj.name} | 문서: {pdf.original_name}",
+                    f"사업명: {bi.business_name}" if bi.business_name else '',
+                    f"발주기관: {bi.client}" if bi.client else '',
+                    f"수행기관: {bi.contractor}" if bi.contractor else '',
+                    f"사업기간: {bi.business_period}" if bi.business_period else '',
+                    f"사업비: {bi.business_cost}" if bi.business_cost else '',
+                    f"개요: {bi.overview}" if bi.overview else '',
+                ]
+                text = '\n'.join(p for p in parts if p)
                 chunks.append({
                     'source_type':  'business_info',
                     'source_id':    bi.id,
@@ -182,33 +238,36 @@ def build_chunks() -> list[dict]:
                     'source_date':  None,
                 })
 
-            # 요구사항
+            # 요구사항 (detail이 길면 분할)
             for r in pdf.requirements:
-                text = (
+                header = (
                     f"[요구사항] 프로젝트: {proj.name} | 문서: {pdf.original_name}\n"
-                    f"번호: {r.req_id} | 제목: {r.req_name}\n"
-                    f"내용: {r.detail or ''}"
+                    f"번호: {r.req_id} | 제목: {r.req_name}"
                 )
-                chunks.append({
+                detail = r.detail or ''
+                base = {
                     'source_type':  'requirement',
                     'source_id':    r.id,
-                    'chunk_text':   text,
                     'source_url':   f'/project/{proj.id}/pdf/{pdf.id}',
                     'source_label': f"{proj.name} > {r.req_id} {r.req_name}",
                     'source_date':  r.created_at,
-                })
+                }
+                full = f"{header}\n내용: {detail}" if detail else header
+                chunks.extend(_make_chunks(base, full))
 
-            # 목차 (depth3 항목만, 내용이 있는 것)
+            # 목차 (depth3 항목만)
             for t in pdf.toc_items:
                 if not t.depth3:
                     continue
                 path = ' > '.join(filter(None, [t.depth1, t.depth2, t.depth3]))
-                text = (
-                    f"[목차] 프로젝트: {proj.name} | 문서: {pdf.original_name}\n"
-                    f"경로: {path}\n"
-                    f"상태: {t.work_status or ''} | 페이지: {t.page_number or ''}\n"
-                    f"비고: {t.remarks or ''}"
-                )
+                parts = [
+                    f"[목차] 프로젝트: {proj.name} | 문서: {pdf.original_name}",
+                    f"경로: {path}",
+                    f"상태: {t.work_status}" if t.work_status else '',
+                    f"페이지: {t.page_number}" if t.page_number else '',
+                    f"비고: {t.remarks}" if t.remarks else '',
+                ]
+                text = '\n'.join(p for p in parts if p)
                 chunks.append({
                     'source_type':  'toc',
                     'source_id':    t.id,
@@ -218,32 +277,43 @@ def build_chunks() -> list[dict]:
                     'source_date':  t.created_at,
                 })
 
-    # ── 작업일지 ─────────────────────────────────────────────────────────────
+    # ── 작업일지 (내용이 길면 단락 단위로 분할) ──────────────────────────────
     for log in WorkLog.query.all():
         content = _strip_html(log.content)
-        tags    = json.loads(log.tags) if log.tags else []
-        text = (
-            f"[작업일지] 날짜: {log.created_at}\n"
-            f"제목: {log.title}\n"
-            f"태그: {', '.join(tags)}\n"
-            f"내용: {content}"
+        tags    = ', '.join(json.loads(log.tags)) if log.tags else ''
+        date_str = _fmt_date(log.created_at)
+        header  = (
+            f"[작업일지] 날짜: {date_str}\n"
+            f"제목: {log.title}"
+            + (f"\n태그: {tags}" if tags else '')
         )
-        chunks.append({
+        base = {
             'source_type':  'worklog',
             'source_id':    log.id,
-            'chunk_text':   text,
             'source_url':   f'/worklog?id={log.id}',
-            'source_label': f"작업일지: {log.title} ({log.created_at})",
+            'source_label': f"작업일지: {log.title} ({date_str})",
             'source_date':  log.created_at,
-        })
+        }
+        if content:
+            # 헤더 + 내용을 분할 (헤더는 각 서브청크에 반복)
+            sub_parts = _split_text(content)
+            if len(sub_parts) == 1:
+                chunks.append({**base, 'chunk_text': f"{header}\n내용: {sub_parts[0]}"})
+            else:
+                for i, part in enumerate(sub_parts, 1):
+                    chunks.append({**base, 'chunk_text': f"{header}\n내용({i}/{len(sub_parts)}): {part}"})
+        else:
+            chunks.append({**base, 'chunk_text': header})
 
     # ── 할일 ─────────────────────────────────────────────────────────────────
     for todo in TodoItem.query.all():
-        text = (
-            f"[할일] {todo.title}\n"
-            f"상태: {todo.status} | 우선순위: {todo.priority} | 마감일: {todo.due_date or '없음'}\n"
-            f"메모: {todo.description or ''}"
-        )
+        parts = [
+            f"[할일] {todo.title}",
+            f"상태: {todo.status} | 우선순위: {todo.priority}",
+            f"마감일: {todo.due_date}" if todo.due_date else '',
+            f"메모: {todo.description}" if todo.description else '',
+        ]
+        text = '\n'.join(p for p in parts if p)
         chunks.append({
             'source_type':  'todo',
             'source_id':    todo.id,
@@ -503,16 +573,21 @@ def search(query: str, api_key: str = '', top_k: int = TOP_K) -> list[dict]:
 
 # ── 답변 생성 ────────────────────────────────────────────────────────────────
 
-def answer(query: str, history: list[dict], api_key: str) -> dict:
+def answer(query: str, history: list[dict], api_key: str, use_local: bool = False) -> dict:
     """
     RAG 기반 답변 생성.
     history: [{'role': 'user'|'model', 'content': str}, ...]
     반환: {'answer': str, 'sources': [...]}
     """
-    genai.configure(api_key=api_key)
+    # 1. 상대 날짜 표현 → 실제 날짜로 치환하여 검색 정확도 향상
+    _today = date.today()
+    _search_query = (query
+        .replace('오늘', _today.isoformat())
+        .replace('어제', (_today - timedelta(days=1)).isoformat())
+        .replace('그제', (_today - timedelta(days=2)).isoformat()))
 
     # 1. 관련 청크 검색
-    relevant  = search(query, api_key)
+    relevant  = search(_search_query, api_key)
     forced    = _forced_types(query)
 
     # 2. 컨텍스트 구성 — forced 타입 우선, 나머지는 보조
@@ -529,6 +604,7 @@ def answer(query: str, history: list[dict], api_key: str) -> dict:
 
     # 3. 시스템 프롬프트
     system_prompt = f"""당신은 프로젝트 업무 어시스턴트입니다.
+오늘 날짜: {_today.isoformat()}
 아래 [관련 데이터]를 바탕으로 사용자의 질문에 답하세요.
 
 ## 답변 형식 규칙
@@ -547,19 +623,38 @@ def answer(query: str, history: list[dict], api_key: str) -> dict:
 {context}
 """
 
-    # 4. Gemini 대화 이력 변환
-    gemini_history = []
-    for h in history[:-1]:
-        role = 'user' if h['role'] == 'user' else 'model'
-        gemini_history.append({'role': role, 'parts': [h['content']]})
+    # 4. 답변 생성 — 로컬 요청이고 Ollama 설정된 경우 로컬 LLM, 아니면 Gemini
+    if use_local and LOCAL_LLM_URL:
+        import requests as _req
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in history[:-1]:
+            messages.append({
+                "role": "user" if h['role'] == 'user' else "assistant",
+                "content": h['content'],
+            })
+        messages.append({"role": "user", "content": query})
+        resp = _req.post(
+            f"{LOCAL_LLM_URL}/v1/chat/completions",
+            json={"model": LOCAL_LLM_MODEL, "messages": messages, "stream": False},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        answer_text = resp.json()["choices"][0]["message"]["content"]
 
-    # 5. 답변 생성
-    model = genai.GenerativeModel(
-        CHAT_MODEL,
-        system_instruction=system_prompt,
-    )
-    chat     = model.start_chat(history=gemini_history)
-    response = chat.send_message(query)
+        class _FakeResponse:
+            def __init__(self, text): self.text = text
+        response = _FakeResponse(answer_text)
+
+    else:
+        # Gemini fallback
+        genai.configure(api_key=api_key)
+        gemini_history = []
+        for h in history[:-1]:
+            role = 'user' if h['role'] == 'user' else 'model'
+            gemini_history.append({'role': role, 'parts': [h['content']]})
+        model = genai.GenerativeModel(CHAT_MODEL, system_instruction=system_prompt)
+        chat     = model.start_chat(history=gemini_history)
+        response = chat.send_message(query)
 
     # 6. 소스 카드: forced 타입 우선, 없으면 고득점 상위 5개만
     if forced and forced_chunks:

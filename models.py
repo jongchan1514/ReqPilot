@@ -18,6 +18,8 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     pdfs = db.relationship('PdfDocument', back_populates='project', cascade='all, delete-orphan')
     attachments = db.relationship('ProjectAttachment', back_populates='project', cascade='all, delete-orphan')
+    file_attachments = db.relationship('ProjectFileAttachment', back_populates='project',
+                                       cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
@@ -100,6 +102,8 @@ class Requirement(db.Model):
     detail = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     pdf = db.relationship('PdfDocument', back_populates='requirements')
+    proposal_images = db.relationship('RequirementProposalImage', back_populates='requirement',
+                                      cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
@@ -108,6 +112,33 @@ class Requirement(db.Model):
             'req_id': self.req_id,
             'req_name': self.req_name,
             'detail': self.detail or '',
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else '',
+        }
+
+
+class RequirementProposalImage(db.Model):
+    """요구사항 기반 제안 장표 이미지 생성 이력"""
+    __tablename__ = 'requirement_proposal_image'
+    id = db.Column(db.Integer, primary_key=True)
+    requirement_id = db.Column(db.Integer, db.ForeignKey('requirement.id', ondelete='CASCADE'), nullable=False)
+    orientation = db.Column(db.String(20), default='landscape')   # landscape/portrait
+    template_type = db.Column(db.String(50), default='auto')
+    tone = db.Column(db.String(50), default='public')
+    title = db.Column(db.String(500))
+    saved_filename = db.Column(db.String(500), nullable=False)
+    payload_json = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    requirement = db.relationship('Requirement', back_populates='proposal_images')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'requirement_id': self.requirement_id,
+            'orientation': self.orientation or 'landscape',
+            'template_type': self.template_type or 'auto',
+            'tone': self.tone or 'public',
+            'title': self.title or '',
+            'image_url': f'/api/proposal-images/{self.id}/file',
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else '',
         }
 
@@ -140,6 +171,11 @@ ATTACHMENT_SLOTS = {
     'proposal_copy':         ('제안서',   '사본'),
 }
 
+PROJECT_FILE_CATEGORIES = {
+    'misc':      ('기타 파일함', '넣고 싶은 파일을 자유롭게 보관'),
+    'reference': ('참고자료/예상질문', '예상질문, 답변 초안, 보충자료 보관'),
+}
+
 
 class ProjectAttachment(db.Model):
     """프로젝트별 4개 고정 슬롯 첨부파일 (발표자료/제안서 × 원본/사본)"""
@@ -160,6 +196,30 @@ class ProjectAttachment(db.Model):
             'project_id': self.project_id,
             'slot': self.slot,
             'label': f'{label[0]} {label[1]}',
+            'original_name': self.original_name,
+            'uploaded_at': self.uploaded_at.strftime('%Y-%m-%d %H:%M') if self.uploaded_at else '',
+        }
+
+
+class ProjectFileAttachment(db.Model):
+    """프로젝트별 자유 파일함 첨부파일 (기타 / 참고자료·예상질문)."""
+    __tablename__ = 'project_file_attachment'
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id', ondelete='CASCADE'), nullable=False)
+    category = db.Column(db.String(30), nullable=False)
+    original_name = db.Column(db.String(500), nullable=False)
+    saved_filename = db.Column(db.String(500), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    project = db.relationship('Project', back_populates='file_attachments')
+
+    def to_dict(self):
+        label, description = PROJECT_FILE_CATEGORIES.get(self.category, (self.category, ''))
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'category': self.category,
+            'category_label': label,
+            'category_description': description,
             'original_name': self.original_name,
             'uploaded_at': self.uploaded_at.strftime('%Y-%m-%d %H:%M') if self.uploaded_at else '',
         }

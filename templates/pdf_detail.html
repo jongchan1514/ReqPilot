@@ -36,6 +36,9 @@
       <i class="bi bi-paperclip me-1"></i>첨부파일
       <span id="attach-badge" class="badge bg-secondary ms-1" style="font-size:.7rem">0</span>
     </button>
+    <button class="btn btn-outline-success btn-sm" onclick="downloadReqExcel()" title="요구사항/목차 Excel 다운로드">
+      <i class="bi bi-file-earmark-excel me-1"></i>Excel
+    </button>
   </div>
 </div>
 
@@ -123,7 +126,7 @@
               <th style="width:44px">#</th>
               <th style="width:140px">고유번호</th>
               <th>명칭</th>
-              <th style="width:100px">액션</th>
+              <th style="width:150px">액션</th>
             </tr>
           </thead>
           <tbody id="req-tbody">
@@ -228,6 +231,9 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="openFileboxModal('misc')">
+          <i class="bi bi-folder-plus me-1"></i>파일함 추가
+        </button>
         <button type="button" class="btn btn-primary btn-sm" onclick="openAttachModal()">
           <i class="bi bi-upload me-1"></i>파일 등록
         </button>
@@ -286,6 +292,46 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
         <button type="button" class="btn btn-primary btn-sm" id="attach-submit-btn" onclick="submitAttach()">
+          <i class="bi bi-upload me-1"></i>업로드
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 파일함 업로드 모달 -->
+<div class="modal fade" id="fileboxModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-folder-plus me-2 text-primary"></i>파일함 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-2 small">영역</label>
+          <div class="d-flex gap-2">
+            <div class="filebox-pick-btn flex-fill border rounded-3 p-3 text-center active"
+                 data-category="misc" onclick="pickFileboxCategory(this)" style="cursor:pointer">
+              <i class="bi bi-archive d-block mb-1" style="font-size:1.4rem;color:#0f766e"></i>
+              <div class="fw-semibold" style="font-size:.85rem">기타 파일함</div>
+            </div>
+            <div class="filebox-pick-btn flex-fill border rounded-3 p-3 text-center"
+                 data-category="reference" onclick="pickFileboxCategory(this)" style="cursor:pointer">
+              <i class="bi bi-question-square d-block mb-1" style="font-size:1.4rem;color:#7c3aed"></i>
+              <div class="fw-semibold" style="font-size:.85rem">참고자료/예상질문</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="form-label fw-semibold mb-1 small">파일 선택</label>
+          <input type="file" id="filebox-file-input" class="form-control form-control-sm" multiple>
+        </div>
+        <div class="text-muted small mt-2">여러 파일을 한 번에 선택할 수 있습니다.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="filebox-submit-btn" onclick="submitFileboxFiles()">
           <i class="bi bi-upload me-1"></i>업로드
         </button>
       </div>
@@ -374,6 +420,64 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
         <button type="button" class="btn btn-primary" id="btn-req-save">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Proposal Image Modal -->
+<div class="modal fade" id="proposalImageModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1"><i class="bi bi-image me-2 text-primary"></i>제안 이미지 생성</h5>
+          <div class="text-muted small" id="proposal-image-req-label">요구사항 선택 중...</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">방향</label>
+            <select id="proposal-image-orientation" class="form-select form-select-sm">
+              <option value="landscape">가로형 16:9</option>
+              <option value="portrait">세로형 A4</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">템플릿</label>
+            <select id="proposal-image-template" class="form-select form-select-sm">
+              <option value="auto">자동</option>
+              <option value="function">기능 제안형</option>
+              <option value="architecture">구성/아키텍처형</option>
+              <option value="checklist">체크리스트형</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">톤</label>
+            <select id="proposal-image-tone" class="form-select form-select-sm">
+              <option value="public">공공 제안서</option>
+              <option value="technical">기술 제안서</option>
+              <option value="concise">간결형</option>
+            </select>
+          </div>
+          <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-primary btn-sm w-100" id="btn-proposal-image-generate"
+                    onclick="generateProposalImage()">
+              <i class="bi bi-magic me-1"></i>이미지 생성
+            </button>
+          </div>
+        </div>
+        <div id="proposal-image-result" class="mt-3">
+          <div class="empty-state py-4">
+            <i class="bi bi-image"></i>
+            <div class="mt-2">옵션을 선택한 뒤 이미지를 생성하세요</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
       </div>
     </div>
   </div>
@@ -490,6 +594,8 @@
 }
 .attach-pick-btn:hover{border-color:#94a3b8;background:#f8fafc;}
 .attach-pick-btn.active{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8;}
+.filebox-pick-btn:hover{border-color:#94a3b8;background:#f8fafc;}
+.filebox-pick-btn.active{border-color:#0ea5e9!important;background:#f0f9ff;color:#0369a1;}
 
 /* 목차 넘버링 */
 .toc-num {
@@ -557,8 +663,10 @@ let mReqsSelected = new Set();   // TOC 모달 선택 요구사항 IDs
 let reqMapReqId = null;          // 현재 매핑 중인 요구사항 ID
 let reqMapOffcanvasInst = null;  // Bootstrap offcanvas 인스턴스
 let reqMapCheckedTocIds = new Set();
+let proposalImageReqId = null;
 
 const reqModal = new bootstrap.Modal(document.getElementById('reqModal'));
+const proposalImageModal = new bootstrap.Modal(document.getElementById('proposalImageModal'));
 const tocModal = new bootstrap.Modal(document.getElementById('tocModal'));
 const STATUS_CLS = {'신규':'badge-신규','수정필요':'badge-수정필요','완료':'badge-완료','작업중':'badge-작업중'};
 reqMapOffcanvasInst = new bootstrap.Offcanvas(document.getElementById('reqMapOffcanvas'));
@@ -706,6 +814,7 @@ function renderReqs(data) {
       <td class="align-middle text-nowrap">
         ${hasDetail ? `<button class="btn btn-outline-secondary btn-icon me-1" title="세부내용" onclick="toggleDetail(this,${r.id})"><i class="bi bi-chevron-down"></i></button>` : ''}
         <button class="btn btn-outline-secondary btn-icon me-1" title="목차에 매핑" onclick="openReqMapPanel(${r.id})"><i class="bi bi-diagram-3"></i></button>
+        <button class="btn btn-outline-success btn-icon me-1" title="제안 이미지 생성" onclick="openProposalImageModal(${r.id})"><i class="bi bi-image"></i></button>
         <button class="btn btn-outline-primary btn-icon me-1" onclick="openReqEdit(${r.id})"><i class="bi bi-pencil"></i></button>
         <button class="btn btn-outline-danger btn-icon" onclick="deleteReq(${r.id})"><i class="bi bi-trash"></i></button>
       </td>
@@ -762,17 +871,88 @@ document.getElementById('btn-req-save').addEventListener('click', async () => {
   await fetch(`/api/requirements/${id}`, {
     method:'PUT', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
-      req_id: document.getElementById('req-edit-rid').value,
+      req_id:   document.getElementById('req-edit-rid').value,
       req_name: document.getElementById('req-edit-name').value,
-      detail: document.getElementById('req-edit-detail').value,
+      detail:   document.getElementById('req-edit-detail').value,
     })
   });
   reqModal.hide(); loadReqs();
 });
+
+function downloadReqExcel() {
+  window.location.href = `/api/pdf/${PDF_ID}/export/excel`;
+}
 async function deleteReq(id) {
   if (!confirm('이 요구사항을 삭제하시겠습니까?')) return;
   await fetch(`/api/requirements/${id}`, {method:'DELETE'});
   loadReqs();
+}
+
+function openProposalImageModal(id) {
+  proposalImageReqId = id;
+  const r = allReqs.find(x => x.id === id);
+  document.getElementById('proposal-image-req-label').textContent =
+    r ? `${r.req_id}  ${r.req_name}` : '요구사항 선택 중...';
+  document.getElementById('proposal-image-orientation').value = 'landscape';
+  document.getElementById('proposal-image-template').value = 'auto';
+  document.getElementById('proposal-image-tone').value = 'public';
+  document.getElementById('proposal-image-result').innerHTML = `
+    <div class="empty-state py-4">
+      <i class="bi bi-image"></i>
+      <div class="mt-2">옵션을 선택한 뒤 이미지를 생성하세요</div>
+    </div>`;
+  proposalImageModal.show();
+}
+
+async function generateProposalImage() {
+  if (!proposalImageReqId) return;
+  const btn = document.getElementById('btn-proposal-image-generate');
+  const result = document.getElementById('proposal-image-result');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>생성 중...';
+  result.innerHTML = `
+    <div class="text-center py-5 text-muted">
+      <div class="spinner-border spinner-border-sm me-2"></div>요구사항 기반 제안 이미지를 생성하는 중...
+    </div>`;
+
+  const payload = {
+    orientation: document.getElementById('proposal-image-orientation').value,
+    template_type: document.getElementById('proposal-image-template').value,
+    tone: document.getElementById('proposal-image-tone').value,
+  };
+
+  try {
+    const res = await fetch(`/api/requirements/${proposalImageReqId}/proposal-image`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || '이미지 생성에 실패했습니다.');
+    const img = data.image;
+    const imageUrl = `${img.image_url}?t=${Date.now()}`;
+    result.innerHTML = `
+      <div class="border rounded-3 p-3 bg-light">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <div class="fw-semibold">${esc(img.title || '제안 이미지')}</div>
+            <div class="text-muted small">${img.orientation === 'portrait' ? '세로형 A4' : '가로형 16:9'} · ${img.created_at}</div>
+          </div>
+          <a class="btn btn-outline-primary btn-sm" href="${img.image_url}" download>
+            <i class="bi bi-download me-1"></i>PNG 다운로드
+          </a>
+        </div>
+        <div class="text-center">
+          <img src="${imageUrl}" class="img-fluid rounded border bg-white"
+               style="max-height:620px;object-fit:contain" alt="생성된 제안 이미지">
+        </div>
+      </div>`;
+  } catch (e) {
+    result.innerHTML = `<div class="alert alert-danger py-2">${esc(e.message || '이미지 생성에 실패했습니다.')}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-magic me-1"></i>이미지 생성';
+  }
 }
 
 /* ─── 요구사항 트리 피커 (TOC 모달 내 체크박스 트리) ──────────── */
@@ -1672,12 +1852,13 @@ async function normalizeTocOrder() {
 
 // ── PDF 업로드 (모달) ────────────────────────────────────────────────────────
 const TOTAL_STEPS = 7;
-let uploadModal, attachModalBS;
+let uploadModal, attachModalBS, fileboxModalBS;
 let chosenPdfFile = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   uploadModal   = new bootstrap.Modal(document.getElementById('uploadModal'));
   attachModalBS = new bootstrap.Modal(document.getElementById('attachModal'));
+  fileboxModalBS = new bootstrap.Modal(document.getElementById('fileboxModal'));
   document.getElementById('uploadModal').addEventListener('hidden.bs.modal', () => {
     if (!document.getElementById('progress-section').classList.contains('d-none')) return;
     resetUploadForm();
@@ -1784,18 +1965,35 @@ const ATTACH_META = {
   proposal_copy:         { cat: '제안서',   kind: '사본', icon: 'bi-file-earmark-text', color: '#c4b5fd' },
 };
 let attachData = {}, selectedCat = 'presentation', selectedKind = 'original';
+let fileboxData = {}, selectedFileboxCategory = 'misc';
 
 async function loadAttachments() {
   const res = await fetch(`/api/project/${PROJECT_ID}/attachments`);
   attachData = await res.json();
   renderAttachList();
 }
-function renderAttachList() {
-  const filled = Object.values(attachData).filter(Boolean);
+async function loadFilebox() {
+  const res = await fetch(`/api/project/${PROJECT_ID}/filebox`);
+  fileboxData = await res.json();
+  updateAttachBadge();
+}
+function fixedAttachCount() {
+  return Object.values(attachData || {}).filter(Boolean).length;
+}
+function fileboxCount() {
+  return Object.values(fileboxData || {})
+    .reduce((sum, group) => sum + ((group.files || []).length), 0);
+}
+function updateAttachBadge() {
+  const total = fixedAttachCount() + fileboxCount();
   const badge = document.getElementById('attach-badge');
   const badgePanel = document.getElementById('attach-count-panel');
-  if (badge) badge.textContent = filled.length;
-  if (badgePanel) badgePanel.textContent = filled.length;
+  if (badge) badge.textContent = total;
+  if (badgePanel) badgePanel.textContent = total;
+}
+function renderAttachList() {
+  const filled = Object.values(attachData).filter(Boolean);
+  updateAttachBadge();
   const wrap = document.getElementById('attach-list-wrap');
   if (!wrap) return;
   if (!filled.length) {
@@ -1834,13 +2032,10 @@ function renderAttachManageBody() {
   const wrap = document.getElementById('attach-manage-body');
   if (!wrap) return;
   const filled = Object.entries(attachData).filter(([,v]) => v);
-  if (!filled.length) {
-    wrap.innerHTML = '<div class="py-5 text-center text-muted"><i class="bi bi-paperclip" style="font-size:2rem"></i><div class="mt-2 small">등록된 첨부파일이 없습니다</div></div>';
-    return;
-  }
   const order = ['presentation_original','presentation_copy','proposal_original','proposal_copy'];
-  wrap.innerHTML = '<ul class="list-group list-group-flush">' +
-    order.filter(k => attachData[k]).map(k => {
+  const fixedHtml = filled.length
+    ? '<ul class="list-group list-group-flush">' +
+      order.filter(k => attachData[k]).map(k => {
       const att = attachData[k]; const m = ATTACH_META[k];
       return `<li class="list-group-item px-4 py-3 d-flex justify-content-between align-items-center">
         <div class="d-flex align-items-center gap-3">
@@ -1860,18 +2055,71 @@ function renderAttachManageBody() {
           <button class="btn btn-outline-danger btn-sm" onclick="deleteAttachFromManage('${k}')"><i class="bi bi-trash"></i></button>
         </div>
       </li>`;
-    }).join('') + '</ul>';
+      }).join('') + '</ul>'
+    : '<div class="py-4 text-center text-muted small">등록된 고정 첨부파일이 없습니다</div>';
+  wrap.innerHTML = `
+    <div class="px-4 py-3 border-bottom bg-light-subtle">
+      <div class="fw-semibold small"><i class="bi bi-pin-angle me-1 text-primary"></i>고정 첨부파일</div>
+      <div class="text-muted" style="font-size:.75rem">발표자료/제안서 원본·사본</div>
+    </div>
+    ${fixedHtml}
+    <div class="px-4 py-3 border-top bg-light-subtle">
+      <div class="fw-semibold small"><i class="bi bi-folder2-open me-1 text-primary"></i>프로젝트 파일함</div>
+      <div class="text-muted" style="font-size:.75rem">기타 파일과 참고자료/예상질문을 자유롭게 보관</div>
+    </div>
+    ${renderFileboxManageHtml()}`;
+}
+function renderFileboxManageHtml() {
+  const groups = [
+    ['misc', 'bi-archive', '#0f766e'],
+    ['reference', 'bi-question-square', '#7c3aed'],
+  ];
+  return groups.map(([key, icon, color]) => {
+    const group = fileboxData[key] || { label: key, description: '', files: [] };
+    const files = group.files || [];
+    const items = files.length
+      ? files.map(f => `
+        <li class="list-group-item px-4 py-2 d-flex justify-content-between align-items-center">
+          <div class="d-flex align-items-center gap-2" style="min-width:0">
+            <i class="bi bi-file-earmark" style="color:${color}"></i>
+            <div style="min-width:0">
+              <div class="small fw-semibold text-truncate" title="${escHtml(f.original_name)}">${escHtml(f.original_name)}</div>
+              <div class="text-muted" style="font-size:.72rem">${f.uploaded_at}</div>
+            </div>
+          </div>
+          <div class="d-flex gap-1 flex-shrink-0">
+            <a href="/api/project/${PROJECT_ID}/filebox/${f.id}/file" class="btn btn-outline-primary btn-sm btn-icon" title="다운로드">
+              <i class="bi bi-download"></i>
+            </a>
+            <button class="btn btn-outline-danger btn-sm btn-icon" onclick="deleteFileboxFile(${f.id})" title="삭제">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </li>`).join('')
+      : '<li class="list-group-item px-4 py-3 text-center text-muted small">등록된 파일이 없습니다</li>';
+    return `
+      <div class="px-4 py-2 d-flex justify-content-between align-items-center border-top">
+        <div>
+          <div class="fw-semibold small"><i class="bi ${icon} me-1" style="color:${color}"></i>${escHtml(group.label)}</div>
+          <div class="text-muted" style="font-size:.72rem">${escHtml(group.description || '')}</div>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" onclick="openFileboxModal('${key}')">
+          <i class="bi bi-plus-lg me-1"></i>추가
+        </button>
+      </div>
+      <ul class="list-group list-group-flush">${items}</ul>`;
+  }).join('');
 }
 async function deleteAttachFromManage(slot) {
   if (!confirm('첨부파일을 삭제하시겠습니까?')) return;
   await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'DELETE' });
   attachData[slot] = null;
-  const badge = document.getElementById('attach-badge');
-  if (badge) badge.textContent = Object.values(attachData).filter(Boolean).length;
+  updateAttachBadge();
   renderAttachManageBody();
 }
 
-function openAttachManageModal() {
+async function openAttachManageModal() {
+  await loadFilebox();
   renderAttachManageBody();
   attachManageModalBS.show();
 }
@@ -1914,8 +2162,7 @@ async function submitAttach() {
   const fd = new FormData(); fd.append('file', file);
   const res = await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'POST', body: fd });
   if (res.ok) { attachData[slot] = await res.json(); attachModalBS.hide();
-    const badge = document.getElementById('attach-badge');
-    if (badge) badge.textContent = Object.values(attachData).filter(Boolean).length;
+    updateAttachBadge();
     renderAttachManageBody(); }
   else {
     let msg = '업로드에 실패했습니다.';
@@ -1932,9 +2179,55 @@ async function deleteAttachment(slot) {
   await fetch(`/api/project/${PROJECT_ID}/attachment/${slot}`, { method: 'DELETE' });
   attachData[slot] = null; renderAttachList();
 }
+function openFileboxModal(category = 'misc') {
+  selectedFileboxCategory = category;
+  document.querySelectorAll('.filebox-pick-btn[data-category]').forEach(b =>
+    b.classList.toggle('active', b.dataset.category === selectedFileboxCategory));
+  document.getElementById('filebox-file-input').value = '';
+  fileboxModalBS.show();
+}
+function pickFileboxCategory(el) {
+  document.querySelectorAll('.filebox-pick-btn[data-category]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedFileboxCategory = el.dataset.category;
+}
+async function submitFileboxFiles() {
+  const input = document.getElementById('filebox-file-input');
+  const files = Array.from(input.files || []);
+  if (!files.length) { alert('파일을 선택하세요.'); return; }
+  const btn = document.getElementById('filebox-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업로드 중...';
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/project/${PROJECT_ID}/filebox/${selectedFileboxCategory}`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) throw new Error(file.name);
+    }
+    fileboxModalBS.hide();
+    await loadFilebox();
+    renderAttachManageBody();
+  } catch (e) {
+    alert(`파일 업로드에 실패했습니다: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
+  }
+}
+async function deleteFileboxFile(fileId) {
+  if (!confirm('파일함에서 삭제하시겠습니까?')) return;
+  await fetch(`/api/project/${PROJECT_ID}/filebox/${fileId}`, { method: 'DELETE' });
+  await loadFilebox();
+  renderAttachManageBody();
+}
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 loadAttachments();
+loadFilebox();
 
 // init — 타입 규칙 먼저 로드 후 요구사항 렌더
 loadBiz();

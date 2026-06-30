@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}캘린더 — 할일 일정{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+<style>
+#calendar-wrap { background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:20px 24px; }
+
+/* FullCalendar 커스텀 */
+.fc .fc-toolbar-title  { font-size:1.1rem; font-weight:700; color:#1e293b; }
+.fc .fc-button         { font-size:.82rem; }
+.fc .fc-button-primary { background:#1e293b; border-color:#1e293b; }
+.fc .fc-button-primary:hover,
+.fc .fc-button-primary:not(:disabled):active { background:#334155; border-color:#334155; }
+.fc .fc-today-button   { background:#3b82f6; border-color:#3b82f6; }
+.fc .fc-today-button:hover { background:#2563eb; border-color:#2563eb; }
+.fc .fc-daygrid-day.fc-day-today { background:#eff6ff; }
+.fc-event { border-radius:5px !important; font-size:.78rem !important; padding:1px 5px !important; cursor:pointer; }
+.fc-event-title { font-weight:600; }
+
+/* 범례 */
+.legend-item { display:flex; align-items:center; gap:6px; font-size:.8rem; color:#475569; }
+.legend-dot  { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="bi bi-calendar3 me-2"></i>캘린더</h4>
+  <div class="d-flex gap-2">
+    <div class="legend-item"><span class="legend-dot" style="background:#991b1b"></span>긴급</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>보통</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#94a3b8"></span>낮음</div>
+    <div class="vr mx-1"></div>
+    <div class="legend-item"><span class="legend-dot" style="background:#1e293b"></span>할일</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>진행중</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>완료</div>
+  </div>
+</div>
+
+<div id="calendar-wrap">
+  <div id="calendar"></div>
+</div>
+
+<!-- Todo Detail Modal -->
+<div class="modal fade" id="todoDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detail-modal-title">할일 상세</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detail-modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <a href="/todos" class="btn btn-primary btn-sm"><i class="bi bi-check2-square me-1"></i>할일 목록으로</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/locales/ko.global.min.js"></script>
+<script>
+const PRIORITY_COLOR = { '긴급': '#991b1b', '보통': '#2563eb', '낮음': '#64748b' };
+const STATUS_COLOR   = { '할일': '#1e293b',  '진행중': '#d97706', '완료': '#16a34a' };
+const STATUS_BG      = { '할일': '#f1f5f9',  '진행중': '#fef3c7', '완료': '#dcfce7' };
+const STATUS_FG      = { '할일': '#1e293b',  '진행중': '#92400e', '완료': '#166534' };
+const PRIORITY_BG    = { '긴급': '#fee2e2', '보통': '#dbeafe', '낮음': '#f1f5f9' };
+const PRIORITY_FG    = { '긴급': '#991b1b', '보통': '#1d4ed8', '낮음': '#475569' };
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let todoDetailModal;
+let allTodos = [];
+
+function todoToEvents(t) {
+  // 이벤트 색상: 완료=녹색, 진행중=황색, 할일=우선순위 색
+  const color = t.status === '완료'
+    ? '#16a34a'
+    : t.status === '진행중'
+    ? '#d97706'
+    : (PRIORITY_COLOR[t.priority] || '#2563eb');
+
+  const events = [];
+
+  // due_date가 있으면 마감일 이벤트
+  if (t.due_date) {
+    events.push({
+      id: `todo-${t.id}`,
+      title: `${t.status === '완료' ? '✓ ' : ''}${t.title}`,
+      start: t.due_date,
+      allDay: true,
+      backgroundColor: color,
+      borderColor: color,
+      textColor: '#fff',
+      extendedProps: { todoId: t.id },
+    });
+  }
+
+  // start_date가 있고 due_date와 다를 때: 기간 이벤트로 표시
+  if (t.start_date && t.due_date && t.start_date !== t.due_date) {
+    // due_date는 inclusive이므로 FullCalendar end는 +1일
+    const endDate = new Date(t.due_date);
+    endDate.setDate(endDate.getDate() + 1);
+    const endStr = endDate.toISOString().slice(0, 10);
+    events[events.length - 1].start = t.start_date;
+    events[events.length - 1].end   = endStr;
+  } else if (t.start_date && !t.due_date) {
+    // due_date 없이 start_date만 있을 때
+    events.push({
+      id: `todo-start-${t.id}`,
+      title: t.title,
+      start: t.start_date,
+      allDay: true,
+      backgroundColor: color + 'aa',
+      borderColor: color,
+      textColor: '#fff',
+      extendedProps: { todoId: t.id },
+    });
+  }
+
+  return events;
+}
+
+function showTodoDetail(id) {
+  const t = allTodos.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('detail-modal-title').textContent = t.title;
+
+  const sBg = STATUS_BG[t.status] || '#f1f5f9';
+  const sFg = STATUS_FG[t.status] || '#1e293b';
+  const pBg = PRIORITY_BG[t.priority] || '#f1f5f9';
+  const pFg = PRIORITY_FG[t.priority] || '#1e293b';
+
+  document.getElementById('detail-modal-body').innerHTML = `
+    <div class="d-flex gap-2 mb-3">
+      <span class="status-badge" style="background:${sBg};color:${sFg}">${esc(t.status)}</span>
+      <span class="status-badge" style="background:${pBg};color:${pFg}">${esc(t.priority)}</span>
+    </div>
+    ${t.description ? `<p class="text-secondary small mb-3" style="white-space:pre-wrap">${esc(t.description)}</p>` : ''}
+    <div class="row g-2 text-muted small">
+      ${t.start_date ? `<div class="col-6"><i class="bi bi-calendar-check me-1"></i>시작 ${esc(t.start_date)}</div>` : ''}
+      ${t.due_date   ? `<div class="col-6"><i class="bi bi-alarm me-1"></i>마감 ${esc(t.due_date)}</div>` : ''}
+      <div class="col-6"><i class="bi bi-clock me-1"></i>등록 ${esc(t.created_at)}</div>
+    </div>`;
+  todoDetailModal.show();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  todoDetailModal = new bootstrap.Modal(document.getElementById('todoDetailModal'));
+
+  const res = await fetch('/api/todos');
+  allTodos = await res.json();
+
+  const events = allTodos.flatMap(todoToEvents);
+
+  const cal = new FullCalendar.Calendar(document.getElementById('calendar'), {
+    locale: 'ko',
+    initialView: 'dayGridMonth',
+    headerToolbar: {
+      left:   'prev,next today',
+      center: 'title',
+      right:  'dayGridMonth,dayGridWeek,listWeek',
+    },
+    buttonText: { month: '월', week: '주', list: '목록' },
+    events,
+    eventClick(info) {
+      const tid = info.event.extendedProps.todoId;
+      if (tid) showTodoDetail(tid);
+    },
+    eventMouseEnter(info) {
+      info.el.style.opacity = '.85';
+    },
+    eventMouseLeave(info) {
+      info.el.style.opacity = '1';
+    },
+    height: 'auto',
+    dayMaxEvents: 4,
+  });
+  cal.render();
+});
+</script>
+{% endblock %}

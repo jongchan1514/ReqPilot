@@ -1,13 +1,59 @@
 {% extends "base.html" %}
-{% block title %}프로젝트 목록 — 요구사항 관리{% endblock %}
+{% block title %}대시보드 — 요구사항 관리{% endblock %}
+
+{% block extra_css %}
+<style>
+.stat-card { border-radius:12px; border:none; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.stat-icon { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex-shrink:0; }
+.progress { height:6px; border-radius:3px; }
+.project-card { cursor:pointer; transition:transform .15s,box-shadow .15s; }
+.project-card:hover { transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,.12); }
+.todo-row:hover { background:#f0f9ff; }
+.wlog-row:hover { background:#f8fafc; }
+.dash-section-title { font-size:.72rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.05em; margin-bottom:10px; }
+</style>
+{% endblock %}
 
 {% block content %}
+
+<!-- 헤더 -->
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="fw-bold mb-0"><i class="bi bi-grid me-2"></i>프로젝트 목록</h4>
+  <h4 class="fw-bold mb-0"><i class="bi bi-speedometer2 me-2"></i>대시보드</h4>
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createModal">
     <i class="bi bi-plus-lg me-1"></i> 새 프로젝트
   </button>
 </div>
+
+<!-- 상단 통계 패널 (로컬 사용자만) -->
+{% if is_local_user %}
+<div class="row g-3 mb-4" id="dash-top-row">
+  <!-- 마감 임박 할일 -->
+  <div class="col-lg-6">
+    <div class="card stat-card h-100">
+      <div class="card-header bg-white border-bottom py-3">
+        <span class="fw-semibold"><i class="bi bi-alarm me-2 text-warning"></i>마감 임박 할일 <span class="text-muted fw-normal" style="font-size:.8rem">(7일 이내)</span></span>
+      </div>
+      <div class="card-body p-0" id="upcoming-todos-body">
+        <div class="text-center text-muted py-4 small">불러오는 중...</div>
+      </div>
+    </div>
+  </div>
+  <!-- 최근 작업일지 -->
+  <div class="col-lg-6">
+    <div class="card stat-card h-100">
+      <div class="card-header bg-white border-bottom py-3">
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-primary"></i>최근 작업일지</span>
+      </div>
+      <div class="card-body p-0" id="recent-worklogs-body">
+        <div class="text-center text-muted py-4 small">불러오는 중...</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- 프로젝트 목록 -->
+<div class="dash-section-title"><i class="bi bi-folder2 me-1"></i>프로젝트 목록</div>
 
 {% if projects %}
 <div class="row g-3" id="project-grid">
@@ -17,18 +63,25 @@
       <div class="card-body p-4">
         <div class="d-flex justify-content-between align-items-start mb-2">
           <h6 class="fw-bold mb-0">{{ p.name }}</h6>
-          <button class="btn btn-link btn-sm p-0 text-danger"
-                  onclick="event.stopPropagation(); deleteProject({{ p.id }}, '{{ p.name }}')"
-                  title="삭제">
-            <i class="bi bi-trash"></i>
-          </button>
+          <div class="d-flex gap-1">
+            <button class="btn btn-link btn-sm p-0 text-secondary"
+                    onclick="event.stopPropagation(); openProjectEdit({{ p.id }}, '{{ p.name|e }}', '{{ (p.description or '')|e }}')"
+                    title="수정">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-link btn-sm p-0 text-danger"
+                    onclick="event.stopPropagation(); deleteProject({{ p.id }}, '{{ p.name }}')"
+                    title="삭제">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
         </div>
         {% if p.description %}
         <p class="text-muted small mb-3">{{ p.description }}</p>
         {% else %}
         <p class="text-muted small mb-3">—</p>
         {% endif %}
-        <div class="d-flex gap-3">
+        <div class="d-flex gap-3 mb-3">
           <span class="badge bg-light text-dark border">
             <i class="bi bi-file-earmark-pdf text-danger me-1"></i>PDF {{ p.pdfs|length }}
           </span>
@@ -36,6 +89,8 @@
             <i class="bi bi-list-check text-primary me-1"></i>요구사항 {{ p.pdfs|map(attribute='requirements')|map('length')|sum }}
           </span>
         </div>
+        <!-- TOC 진행률 (JS가 채워줌) -->
+        <div id="toc-progress-{{ p.id }}"></div>
       </div>
       <div class="card-footer bg-white text-muted small border-top-0 pt-0 pb-3 px-4">
         <i class="bi bi-calendar3 me-1"></i>{{ p.created_at.strftime('%Y-%m-%d') }}
@@ -82,11 +137,68 @@
     </div>
   </div>
 </div>
+<!-- Edit project modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">프로젝트 수정</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">프로젝트 이름 <span class="text-danger">*</span></label>
+          <input id="edit-name" type="text" class="form-control">
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold">설명 <span class="text-muted fw-normal">(선택)</span></label>
+          <textarea id="edit-desc" class="form-control" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary" id="btn-edit-save">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 const createModal = new bootstrap.Modal(document.getElementById('createModal'));
+const editModal   = new bootstrap.Modal(document.getElementById('editModal'));
+
+function openProjectEdit(id, name, desc) {
+  document.getElementById('edit-id').value   = id;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-desc').value = desc;
+  editModal.show();
+}
+
+document.getElementById('edit-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-edit-save').click();
+});
+
+document.getElementById('btn-edit-save').addEventListener('click', async () => {
+  const id   = document.getElementById('edit-id').value;
+  const name = document.getElementById('edit-name').value.trim();
+  const desc = document.getElementById('edit-desc').value.trim();
+  if (!name) { alert('프로젝트 이름을 입력해주세요.'); return; }
+  const res  = await fetch(`/api/projects/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, description: desc }),
+  });
+  const data = await res.json();
+  if (data.success) {
+    editModal.hide();
+    location.reload();
+  } else {
+    alert(data.error || '수정 실패');
+  }
+});
 
 document.getElementById('new-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-create').click();
@@ -117,5 +229,88 @@ async function deleteProject(id, name) {
     document.getElementById(`proj-card-${id}`)?.remove();
   }
 }
+
+// ── 대시보드 데이터 로드 ──────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const PRIORITY_STYLE = {
+  '긴급': 'background:#fee2e2;color:#991b1b',
+  '보통': 'background:#f1f5f9;color:#475569',
+  '낮음': 'background:#dbeafe;color:#1d4ed8',
+};
+
+async function loadDashboard() {
+  const res = await fetch('/api/dashboard');
+  const d = await res.json();
+  const today = d.today;
+
+  // ── 마감 임박 할일 ────────────────────────────────────────────
+  const todoBody = document.getElementById('upcoming-todos-body');
+  if (!d.todo_upcoming.length) {
+    todoBody.innerHTML = '<div class="text-center text-muted py-4 small"><i class="bi bi-check-circle text-success fs-4 d-block mb-1"></i>마감 임박 할일이 없습니다</div>';
+  } else {
+    let html = '<div class="list-group list-group-flush">';
+    d.todo_upcoming.forEach(t => {
+      const overdue = t.due_date < today;
+      const pstyle = PRIORITY_STYLE[t.priority] || PRIORITY_STYLE['보통'];
+      const dateColor = overdue ? 'text-danger fw-bold' : 'text-muted';
+      html += `
+      <a href="/todos" class="list-group-item list-group-item-action todo-row px-4 py-2 border-0 border-bottom">
+        <div class="d-flex align-items-center gap-2">
+          <span class="status-badge" style="${esc(pstyle)};font-size:.72rem">${esc(t.priority)}</span>
+          <span class="flex-grow-1 text-truncate small fw-semibold">${esc(t.title)}</span>
+          <span class="small ${dateColor}" style="flex-shrink:0">${overdue ? '⚠ ' : ''}${esc(t.due_date)}</span>
+        </div>
+      </a>`;
+    });
+    html += '</div>';
+    todoBody.innerHTML = html;
+  }
+
+  // ── 최근 작업일지 ─────────────────────────────────────────────
+  const wlogBody = document.getElementById('recent-worklogs-body');
+  if (!d.worklog_recent.length) {
+    wlogBody.innerHTML = '<div class="text-center text-muted py-4 small"><i class="bi bi-journal-plus fs-4 d-block mb-1"></i>작업일지가 없습니다</div>';
+  } else {
+    let html = '<div class="list-group list-group-flush">';
+    d.worklog_recent.forEach(w => {
+      const tags = (w.tags || []).map(t => `<span class="badge bg-light text-secondary border" style="font-size:.68rem">${esc(t)}</span>`).join(' ');
+      html += `
+      <a href="/worklog" class="list-group-item list-group-item-action wlog-row px-4 py-2 border-0 border-bottom">
+        <div class="d-flex align-items-start justify-content-between gap-2">
+          <div class="flex-grow-1 min-w-0">
+            <div class="small fw-semibold text-truncate">${esc(w.title)}</div>
+            ${tags ? `<div class="mt-1">${tags}</div>` : ''}
+          </div>
+          <span class="text-muted small flex-shrink-0">${esc(w.created_at)}</span>
+        </div>
+      </a>`;
+    });
+    html += '</div>';
+    wlogBody.innerHTML = html;
+  }
+
+  // ── 프로젝트 TOC 진행률 (최신 PDF 기준) ─────────────────────
+  d.projects.forEach(p => {
+    const el = document.getElementById(`toc-progress-${p.id}`);
+    if (!el || !p.pdf_toc || !p.pdf_toc.length) return;
+    const pdf = p.pdf_toc[0];
+    const pct = Math.round(pdf.toc_done / pdf.toc_total * 100);
+    const color = pct === 100 ? '#166534' : '#1d4ed8';
+    const barCls = pct === 100 ? 'bg-success' : 'bg-primary';
+    el.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="text-muted" style="font-size:.75rem">목차 진행률</span>
+        <span class="fw-semibold" style="font-size:.75rem;color:${color}">${pdf.toc_done}/${pdf.toc_total} (${pct}%)</span>
+      </div>
+      <div class="progress">
+        <div class="progress-bar ${barCls}" style="width:${pct}%"></div>
+      </div>`;
+  });
+}
+
+{% if is_local_user %}loadDashboard();{% endif %}
 </script>
 {% endblock %}

@@ -81,13 +81,23 @@
       <i class="bi bi-paperclip text-primary"></i> 첨부파일
       <span class="badge bg-secondary ms-1" id="attach-count">0</span>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="openAttachModal()">
-      <i class="bi bi-upload me-1"></i>첨부파일 등록
-    </button>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-primary btn-sm" onclick="openAttachModal()">
+        <i class="bi bi-upload me-1"></i>첨부파일 등록
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="openFileboxModal('misc')">
+        <i class="bi bi-folder-plus me-1"></i>파일함 추가
+      </button>
+    </div>
   </div>
   <div id="attach-list-wrap">
     <div class="py-4 text-center text-muted small" id="attach-loading">
       <i class="bi bi-hourglass me-1"></i>불러오는 중...
+    </div>
+  </div>
+  <div class="border-top bg-light-subtle p-3" id="filebox-wrap">
+    <div class="py-3 text-center text-muted small">
+      <i class="bi bi-hourglass me-1"></i>파일함 불러오는 중...
     </div>
   </div>
 </div>
@@ -206,6 +216,44 @@
     </div>
   </div>
 </div>
+
+<!-- ── 파일함 업로드 모달 ───────────────────────────────────────── -->
+<div class="modal fade" id="fileboxModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-folder-plus me-2 text-primary"></i>파일함 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-4">
+          <div class="form-label fw-semibold mb-2">영역</div>
+          <div class="d-flex gap-2">
+            <div class="filebox-pick-btn active" data-category="misc" onclick="pickFileboxCategory(this)">
+              <i class="bi bi-archive mb-1" style="font-size:1.3rem"></i>
+              <span>기타 파일함</span>
+            </div>
+            <div class="filebox-pick-btn" data-category="reference" onclick="pickFileboxCategory(this)">
+              <i class="bi bi-question-square mb-1" style="font-size:1.3rem"></i>
+              <span>참고자료/예상질문</span>
+            </div>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">파일 선택</label>
+          <input type="file" id="filebox-file-input" class="form-control form-control-sm" multiple>
+        </div>
+        <div class="text-muted small">여러 파일을 한 번에 선택할 수 있습니다.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="filebox-submit-btn" onclick="submitFileboxFiles()">
+          <i class="bi bi-upload me-1"></i>업로드
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -225,11 +273,12 @@ const progPct    = document.getElementById('progress-pct');
 const progBar    = document.getElementById('progress-bar');
 const resultWrap = document.getElementById('result-wrap');
 let chosenFile   = null;
-let uploadModal, attachModal;
+let uploadModal, attachModal, fileboxModal;
 
 document.addEventListener('DOMContentLoaded', () => {
   uploadModal = new bootstrap.Modal(document.getElementById('uploadModal'));
   attachModal = new bootstrap.Modal(document.getElementById('attachModal'));
+  fileboxModal = new bootstrap.Modal(document.getElementById('fileboxModal'));
   // 모달 닫힐 때 업로드 중이 아니면 폼 초기화
   document.getElementById('uploadModal').addEventListener('hidden.bs.modal', () => {
     if (!progSec.classList.contains('d-none')) return; // 진행 중이면 유지
@@ -405,6 +454,8 @@ const ATTACH_META = {
 let attachData = {};
 let selectedCat  = 'presentation';
 let selectedKind = 'original';
+let fileboxData = {};
+let selectedFileboxCategory = 'misc';
 
 async function loadAttachments() {
   const res = await fetch(`/api/project/${PROJECT_ID}/attachments`);
@@ -412,10 +463,23 @@ async function loadAttachments() {
   renderAttachList();
 }
 
+async function loadFilebox() {
+  const res = await fetch(`/api/project/${PROJECT_ID}/filebox`);
+  fileboxData = await res.json();
+  renderFilebox();
+}
+
+function updateAttachCount() {
+  const fixedCount = Object.values(attachData || {}).filter(Boolean).length;
+  const fileboxCount = Object.values(fileboxData || {})
+    .reduce((sum, group) => sum + ((group.files || []).length), 0);
+  document.getElementById('attach-count').textContent = fixedCount + fileboxCount;
+}
+
 function renderAttachList() {
   const wrap = document.getElementById('attach-list-wrap');
   const filled = Object.entries(attachData).filter(([, v]) => v);
-  document.getElementById('attach-count').textContent = filled.length;
+  updateAttachCount();
 
   if (!filled.length) {
     wrap.innerHTML = `
@@ -454,6 +518,52 @@ function renderAttachList() {
         </div>
       </li>`;
     }).join('') + `</ul>`;
+}
+
+function renderFilebox() {
+  updateAttachCount();
+  const wrap = document.getElementById('filebox-wrap');
+  const groups = [
+    ['misc', 'bi-archive', '#0f766e'],
+    ['reference', 'bi-question-square', '#7c3aed'],
+  ];
+  wrap.innerHTML = groups.map(([key, icon, color]) => {
+    const group = fileboxData[key] || { label: key, description: '', files: [] };
+    const files = group.files || [];
+    const items = files.length
+      ? files.map(f => `
+        <li class="list-group-item d-flex justify-content-between align-items-center px-3 py-2">
+          <div class="d-flex align-items-center gap-2" style="min-width:0">
+            <i class="bi bi-file-earmark" style="color:${color}"></i>
+            <div style="min-width:0">
+              <div class="small fw-semibold text-truncate" title="${escHtml(f.original_name)}">${escHtml(f.original_name)}</div>
+              <div class="text-muted" style="font-size:.72rem">${f.uploaded_at}</div>
+            </div>
+          </div>
+          <div class="d-flex gap-1 flex-shrink-0">
+            <a href="/api/project/${PROJECT_ID}/filebox/${f.id}/file" class="btn btn-outline-primary btn-sm btn-icon" title="다운로드">
+              <i class="bi bi-download"></i>
+            </a>
+            <button class="btn btn-outline-danger btn-sm btn-icon" onclick="deleteFileboxFile(${f.id})" title="삭제">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </li>`).join('')
+      : '<li class="list-group-item text-muted small text-center py-3">등록된 파일이 없습니다</li>';
+    return `
+      <div class="mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <div class="fw-semibold small"><i class="bi ${icon} me-1" style="color:${color}"></i>${escHtml(group.label)}</div>
+            <div class="text-muted" style="font-size:.75rem">${escHtml(group.description || '')}</div>
+          </div>
+          <button class="btn btn-outline-primary btn-sm" onclick="openFileboxModal('${key}')">
+            <i class="bi bi-plus-lg me-1"></i>추가
+          </button>
+        </div>
+        <ul class="list-group">${items}</ul>
+      </div>`;
+  }).join('');
 }
 
 function openAttachModal(presetSlot) {
@@ -529,11 +639,59 @@ async function deleteAttachment(slot) {
   renderAttachList();
 }
 
+function openFileboxModal(category = 'misc') {
+  selectedFileboxCategory = category;
+  document.querySelectorAll('.filebox-pick-btn[data-category]').forEach(b =>
+    b.classList.toggle('active', b.dataset.category === selectedFileboxCategory));
+  document.getElementById('filebox-file-input').value = '';
+  fileboxModal.show();
+}
+
+function pickFileboxCategory(el) {
+  document.querySelectorAll('.filebox-pick-btn[data-category]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedFileboxCategory = el.dataset.category;
+}
+
+async function submitFileboxFiles() {
+  const input = document.getElementById('filebox-file-input');
+  const files = Array.from(input.files || []);
+  if (!files.length) { alert('파일을 선택하세요.'); return; }
+  const btn = document.getElementById('filebox-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업로드 중...';
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/project/${PROJECT_ID}/filebox/${selectedFileboxCategory}`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) throw new Error(file.name);
+    }
+    fileboxModal.hide();
+    await loadFilebox();
+  } catch (e) {
+    alert(`파일 업로드에 실패했습니다: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
+  }
+}
+
+async function deleteFileboxFile(fileId) {
+  if (!confirm('파일함에서 삭제하시겠습니까?')) return;
+  await fetch(`/api/project/${PROJECT_ID}/filebox/${fileId}`, { method: 'DELETE' });
+  await loadFilebox();
+}
+
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 loadAttachments();
+loadFilebox();
 </script>
 {% endblock %}
 
@@ -550,5 +708,14 @@ loadAttachments();
 .attach-pick-btn.active {
   border-color: #3b82f6; background: #eff6ff; color: #1d4ed8;
 }
+.filebox-pick-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: 12px 14px; border-radius: 10px; cursor: pointer;
+  border: 2px solid #e2e8f0; background: #fff; color: #64748b;
+  font-size: .8rem; font-weight: 500; transition: all .15s; text-align: center;
+  user-select: none;
+}
+.filebox-pick-btn:hover { border-color: #94a3b8; background: #f8fafc; }
+.filebox-pick-btn.active { border-color: #0ea5e9; background: #f0f9ff; color: #0369a1; }
 </style>
 {% endblock %}

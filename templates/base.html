@@ -141,6 +141,9 @@
     <a class="nav-link {% if request.endpoint == 'todos_page' %}active{% endif %}" href="/todos">
       <i class="bi bi-check2-square"></i> 할일 목록
     </a>
+    <a class="nav-link {% if request.endpoint == 'calendar_page' %}active{% endif %}" href="/calendar">
+      <i class="bi bi-calendar3"></i> 캘린더
+    </a>
     <a class="nav-link {% if request.endpoint == 'worklog_page' %}active{% endif %}" href="/worklog">
       <i class="bi bi-journal-text"></i> 작업일지
     </a>
@@ -171,6 +174,18 @@
     </a>
     {% endif %}
   </nav>
+
+  <div class="mt-auto px-3 pb-3" style="border-top:1px solid #334155; padding-top:12px; margin-top:auto">
+    {% if is_session_login %}
+    <a href="/logout" class="btn btn-sm btn-outline-secondary w-100" style="color:#94a3b8;border-color:#334155">
+      <i class="bi bi-box-arrow-left me-1"></i> 로그아웃
+    </a>
+    {% elif not is_local_user %}
+    <a href="/login" class="btn btn-sm btn-primary w-100">
+      <i class="bi bi-box-arrow-in-right me-1"></i> 로그인
+    </a>
+    {% endif %}
+  </div>
 </div>
 
 <div class="main-content">
