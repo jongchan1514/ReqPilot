@@ -1,0 +1,15 @@
+dist/
+build/
+instance/
+uploads/
+logs/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.db
+*.sqlite
+*.log
+.git/
+.venv/
+venv/
