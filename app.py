@@ -2378,7 +2378,8 @@ def api_chat_status():
 if __name__ == '__main__':
     if _FROZEN:
         import socket, webbrowser
-        port = 5000
+        port = int(os.environ.get('PORT', 5000))
+        host = os.environ.get('HOST', '127.0.0.1')
         def _is_port_in_use(p):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 return s.connect_ex(('127.0.0.1', p)) == 0
@@ -2389,6 +2390,8 @@ if __name__ == '__main__':
                 __import__('time').sleep(1.5),
                 webbrowser.open(f'http://127.0.0.1:{port}')
             ), daemon=True).start()
-            app.run(debug=False, host='127.0.0.1', port=port, use_reloader=False)
+            app.run(debug=False, host=host, port=port, use_reloader=False)
     else:
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        port = int(os.environ.get('PORT', 5000))
+        host = os.environ.get('HOST', '0.0.0.0')
+        app.run(debug=True, host=host, port=port)
