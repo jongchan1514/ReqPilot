@@ -46,7 +46,7 @@ $sizeMB = [math]::Round((Get-Item "$ROOT\dist\reqpilot.tar.gz").Length / 1MB, 0)
 Write-Host "      reqpilot.tar.gz ($sizeMB MB)"
 
 # ── 3. 전송 ─────────────────────────────────────────────────────────────────
-Write-Host "[3/4] 서버로 전송 중 ($REMOTE:$RemotePort)..."
+Write-Host "[3/4] 서버로 전송 중 (${REMOTE}:${RemotePort})..."
 & scp -P $RemotePort "$ROOT\dist\reqpilot.tar.gz" "${REMOTE}:/tmp/reqpilot.tar.gz"
 if ($LASTEXITCODE -ne 0) { Write-Error "전송 실패"; exit 1 }
 
