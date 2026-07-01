@@ -18,6 +18,15 @@
   flex-shrink: 0;
 }
 .chat-header-left h5 { margin: 0; font-weight: 700; }
+.llm-toggle {
+  display: flex; align-items: center; cursor: pointer;
+  background: #f1f5f9; border: 1.5px solid #e2e8f0;
+  border-radius: 20px; padding: 3px 12px; font-size: .78rem;
+  font-weight: 600; color: #475569; user-select: none;
+  transition: all .2s;
+}
+.llm-toggle:hover { border-color: #94a3b8; }
+.llm-toggle.local { background: #ecfdf5; border-color: #22c55e; color: #15803d; }
 .sync-status {
   display: flex;
   align-items: center;
@@ -229,7 +238,10 @@
         </span>
       </div>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 align-items-center">
+      <div class="llm-toggle" id="llm-toggle" onclick="toggleLLM()" title="클릭하여 LLM 전환">
+        <span class="llm-toggle-label" id="llm-label">Gemini</span>
+      </div>
       <button class="btn-new-chat" onclick="newChat()">
         <i class="bi bi-plus-lg"></i> 새 대화
       </button>
@@ -285,6 +297,26 @@ let isLoading = false;
 const textarea  = document.getElementById('chat-input');
 const btnSend   = document.getElementById('btn-send');
 
+// ── LLM 토글 ────────────────────────────────────────────────────────────────
+let useLocalLLM = localStorage.getItem('useLocalLLM') === 'true';
+function applyLLMToggle() {
+  const el = document.getElementById('llm-toggle');
+  const lb = document.getElementById('llm-label');
+  if (useLocalLLM) {
+    el.classList.add('local');
+    lb.textContent = '🤖 로컬 LLM';
+  } else {
+    el.classList.remove('local');
+    lb.textContent = 'Gemini';
+  }
+}
+function toggleLLM() {
+  useLocalLLM = !useLocalLLM;
+  localStorage.setItem('useLocalLLM', useLocalLLM);
+  applyLLMToggle();
+}
+applyLLMToggle();
+
 textarea.addEventListener('input', () => {
   btnSend.disabled = !textarea.value.trim() || isLoading;
 });
@@ -326,7 +358,7 @@ async function doSend(query) {
     const res  = await fetch('/api/chat/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, history }),
+      body: JSON.stringify({ query, history, use_local: useLocalLLM }),
     });
     const data = await res.json();
     removeLoading(loadId);

@@ -2364,9 +2364,17 @@ def api_chat_ask():
 
     from rag_service import answer
     try:
-        # PyInstaller 빌드(배포 바이너리)에선 Ollama 없으므로 항상 Gemini 사용
-        _use_local = False if getattr(sys, 'frozen', False) else _is_local_request()
-        result = answer(query, history, GEMINI_API_KEY, use_local=_use_local)
+        _local_llm_url = None
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 바이너리: Ollama 없으므로 항상 Gemini
+            _use_local = False
+        elif data.get('use_local') and _is_admin():
+            # 사용자가 로컬 LLM 요청 + 관리자 권한 → 클라이언트 PC의 Ollama 사용
+            _use_local = True
+            _local_llm_url = f"http://{request.remote_addr}:11434"
+        else:
+            _use_local = _is_local_request()
+        result = answer(query, history, GEMINI_API_KEY, use_local=_use_local, local_llm_url=_local_llm_url)
         return jsonify(result)
     except Exception as e:
         logger.error("RAG 답변 오류: %s", e)

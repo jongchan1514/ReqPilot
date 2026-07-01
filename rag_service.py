@@ -573,7 +573,7 @@ def search(query: str, api_key: str = '', top_k: int = TOP_K) -> list[dict]:
 
 # ── 답변 생성 ────────────────────────────────────────────────────────────────
 
-def answer(query: str, history: list[dict], api_key: str, use_local: bool = False) -> dict:
+def answer(query: str, history: list[dict], api_key: str, use_local: bool = False, local_llm_url: str = None) -> dict:
     """
     RAG 기반 답변 생성.
     history: [{'role': 'user'|'model', 'content': str}, ...]
@@ -623,8 +623,9 @@ def answer(query: str, history: list[dict], api_key: str, use_local: bool = Fals
 {context}
 """
 
-    # 4. 답변 생성 — 로컬 요청이고 Ollama 설정된 경우 로컬 LLM, 아니면 Gemini
-    if use_local and LOCAL_LLM_URL:
+    # 4. 답변 생성 — 로컬 LLM 선택 시 (클라이언트 IP 또는 서버 .env URL), 아니면 Gemini
+    effective_llm_url = (local_llm_url or LOCAL_LLM_URL or '').rstrip('/')
+    if use_local and effective_llm_url:
         import requests as _req
         messages = [{"role": "system", "content": system_prompt}]
         for h in history[:-1]:
@@ -634,7 +635,7 @@ def answer(query: str, history: list[dict], api_key: str, use_local: bool = Fals
             })
         messages.append({"role": "user", "content": query})
         resp = _req.post(
-            f"{LOCAL_LLM_URL}/v1/chat/completions",
+            f"{effective_llm_url}/v1/chat/completions",
             json={"model": LOCAL_LLM_MODEL, "messages": messages, "stream": False},
             timeout=120,
         )
