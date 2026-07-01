@@ -69,6 +69,10 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
 _default_db = f'sqlite:///{os.path.join(_INSTANCE_DIR, "req_manager.db")}'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', _default_db)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,   # 끊어진 연결 자동 재연결
+    'pool_recycle': 3600,    # 1시간마다 연결 갱신
+}
 app.config['UPLOAD_FOLDER'] = os.path.join(_BASE_DIR, 'uploads')
 UPLOAD_LIMIT_MB = int(os.environ.get('MAX_UPLOAD_MB', '300'))
 app.config['MAX_CONTENT_LENGTH'] = UPLOAD_LIMIT_MB * 1024 * 1024

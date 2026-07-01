@@ -44,4 +44,4 @@ RUN python3.11 -m PyInstaller app.spec --clean --noconfirm
 
 # 빌드 결과를 /output 볼륨으로 복사
 VOLUME ["/output"]
-CMD cp -r /build/dist/reqpilot /output/
+CMD ["sh", "-c", "cp -r /build/dist/reqpilot /output/"]
