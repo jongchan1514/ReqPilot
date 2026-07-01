@@ -14,8 +14,6 @@ param(
 $ROOT    = Split-Path -Parent $PSScriptRoot
 $DIST    = "$ROOT\dist\reqpilot"
 $REMOTE  = "${RemoteUser}@${RemoteIP}"
-$SSH     = "ssh -p $RemotePort"
-$SCP     = "scp -P $RemotePort"
 
 # ── 1. 빌드 (옵션) ──────────────────────────────────────────────────────────
 if ($Build) {
@@ -47,28 +45,8 @@ Write-Host "      reqpilot.tar.gz ($sizeMB MB)"
 
 # ── 3. 전송 ─────────────────────────────────────────────────────────────────
 Write-Host "[3/4] 서버로 전송 중 (${REMOTE}:${RemotePort}) — ${sizeMB} MB..."
-$totalBytes = (Get-Item "$ROOT\dist\reqpilot.tar.gz").Length
-$scpJob = Start-Job -ScriptBlock {
-    param($port, $src, $dst)
-    & scp -P $port $src $dst
-    $LASTEXITCODE
-} -ArgumentList $RemotePort, "$ROOT\dist\reqpilot.tar.gz", "${REMOTE}:/tmp/reqpilot.tar.gz"
-
-while ($scpJob.State -eq 'Running') {
-    Start-Sleep -Seconds 3
-    try {
-        $remoteSize = & ssh -p $RemotePort $REMOTE "stat -c%s /tmp/reqpilot.tar.gz 2>/dev/null || echo 0"
-        $remoteSize = [long]$remoteSize
-        $pct = [math]::Round($remoteSize / $totalBytes * 100, 1)
-        $remoteMB = [math]::Round($remoteSize / 1MB, 1)
-        Write-Host "      $remoteMB MB / $sizeMB MB ($pct%)" -NoNewline
-        Write-Host "`r" -NoNewline
-    } catch {}
-}
-$scpExit = Receive-Job $scpJob
-Remove-Job $scpJob
-Write-Host ""
-if ($scpExit -ne 0) { Write-Error "전송 실패"; exit 1 }
+& scp -P $RemotePort "$ROOT\dist\reqpilot.tar.gz" "${REMOTE}:/tmp/reqpilot.tar.gz"
+if ($LASTEXITCODE -ne 0) { Write-Error "전송 실패"; exit 1 }
 
 # ── 4. 원격 재시작 ───────────────────────────────────────────────────────────
 Write-Host "[4/4] 원격 서버 업데이트 및 재시작..."
