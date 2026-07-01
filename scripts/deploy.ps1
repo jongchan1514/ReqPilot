@@ -23,7 +23,7 @@ $remote = "${RemoteUser}@${RemoteIP}"
 if (-not $RemoteDir) {
     Write-Host "[2/3] 원격 PC 레포 경로 탐색..."
     $RemoteDir = (ssh $remote 'powershell -NonInteractive -Command "
-        $paths = @(\"C:\ReqPilot\",\"D:\ReqPilot\",\"C:\Users\moons\ReqPilot\",\"C:\Users\user\ReqPilot\");
+        $paths = @(\"E:\req_manager\",\"C:\ReqPilot\",\"D:\ReqPilot\",\"C:\Users\moons\ReqPilot\",\"C:\Users\user\ReqPilot\");
         ($paths | Where-Object { Test-Path (Join-Path $_ \".git\") } | Select-Object -First 1)"') -replace "`n",""
     if (-not $RemoteDir) {
         Write-Error "원격 PC에서 ReqPilot 레포를 찾지 못했습니다. -RemoteDir 를 직접 지정하세요."
