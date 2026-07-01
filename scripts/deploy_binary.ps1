@@ -50,32 +50,34 @@ if ($LASTEXITCODE -ne 0) { Write-Error "전송 실패"; exit 1 }
 
 # ── 4. 원격 재시작 ───────────────────────────────────────────────────────────
 Write-Host "[4/4] 원격 서버 업데이트 및 재시작..."
-$remoteScript = @"
+$remoteScript = @'
 set -e
 echo '-- 압축 해제...'
 tar -xzf /tmp/reqpilot.tar.gz -C /tmp
 
 echo '-- 기존 프로세스 종료...'
-pkill -f $RemoteDir/reqpilot || true
+kill $(cat PIDFILE 2>/dev/null) 2>/dev/null || true
 sleep 2
 
 echo '-- 바이너리 교체...'
-cp -r /tmp/reqpilot/* $RemoteDir/
-chmod +x $RemoteDir/reqpilot
+cp -r /tmp/reqpilot/* REMOTEDIR/
+chmod +x REMOTEDIR/reqpilot
 
 echo '-- 재시작 (nohup)...'
-cd $RemoteDir
-nohup ./reqpilot > $RemoteDir/nohup.out 2>&1 &
-echo \$! > $RemoteDir/reqpilot.pid
-sleep 2
-if kill -0 \$(cat $RemoteDir/reqpilot.pid) 2>/dev/null; then
-    echo "서버 기동 확인 (PID: \$(cat $RemoteDir/reqpilot.pid))"
+cd REMOTEDIR
+nohup ./reqpilot > REMOTEDIR/nohup.out 2>&1 &
+echo $! > REMOTEDIR/reqpilot.pid
+sleep 3
+PID=$(cat REMOTEDIR/reqpilot.pid)
+if kill -0 $PID 2>/dev/null; then
+    echo "기동 성공 (PID: $PID)"
 else
-    echo '경고: 프로세스 즉시 종료 — nohup.out 확인 필요'
-    tail -20 $RemoteDir/nohup.out
+    echo '경고: 프로세스 즉시 종료 — nohup.out:'
+    tail -20 REMOTEDIR/nohup.out
 fi
-rm -f /tmp/reqpilot.tar.gz /tmp/reqpilot
-"@
+rm -f /tmp/reqpilot.tar.gz
+rm -rf /tmp/reqpilot
+'@ -replace 'REMOTEDIR', $RemoteDir -replace 'PIDFILE', "$RemoteDir/reqpilot.pid"
 
 & ssh -p $RemotePort $REMOTE $remoteScript
 if ($LASTEXITCODE -ne 0) { Write-Error "원격 재시작 실패"; exit 1 }
