@@ -79,7 +79,10 @@ rm -f /tmp/reqpilot.tar.gz
 rm -rf /tmp/reqpilot
 '@ -replace 'REMOTEDIR', $RemoteDir -replace 'PIDFILE', "$RemoteDir/reqpilot.pid"
 
+$prevEncoding  = $OutputEncoding
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $remoteScript -replace "`r`n", "`n" | & ssh -p $RemotePort $REMOTE "bash -s"
+$OutputEncoding = $prevEncoding
 if ($LASTEXITCODE -ne 0) { Write-Error "원격 재시작 실패"; exit 1 }
 
 Write-Host ""
