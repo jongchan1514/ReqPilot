@@ -1302,7 +1302,17 @@ def api_toc_update(tid):
     t = db.get_or_404(TOCItem, tid)
     data = request.get_json()
     # 부분 업데이트: 요청에 포함된 필드만 갱신 (없는 필드는 기존값 유지)
-    if 'depth1' in data: t.depth1 = data['depth1'] or None
+    if 'depth1' in data:
+        new_d1 = data['depth1'] or None
+        old_d1 = t.depth1
+        # depth1 헤더 항목(depth2=None) 이름 변경 시 자식 항목의 depth1도 연쇄 갱신
+        if new_d1 != old_d1 and not t.depth2 and not t.depth3 and old_d1:
+            children = TOCItem.query.filter_by(pdf_id=t.pdf_id, depth1=old_d1).filter(
+                TOCItem.id != t.id
+            ).all()
+            for child in children:
+                child.depth1 = new_d1
+        t.depth1 = new_d1
     if 'depth2' in data: t.depth2 = data['depth2'] or None
     if 'depth3' in data: t.depth3 = data['depth3'] or None
     if 'remarks' in data: t.remarks = data['remarks'] or None

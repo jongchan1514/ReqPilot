@@ -1478,7 +1478,8 @@ function updateQaParentSelectors() {
     return;
   }
 
-  const d1Values = [...new Set(allToc.filter(t => !t.depth2 && !t.depth3 && t.depth1).map(t => t.depth1))];
+  // 헤더 항목(depth2=null)뿐 아니라 고아 섹션(헤더 없이 자식만 있는 섹션)의 depth1도 포함
+  const d1Values = [...new Set(allToc.filter(t => t.depth1).map(t => t.depth1))];
   const prevD1 = d1Sel.value;
   d1Sel.innerHTML = d1Values.map(v => `<option value="${v}">${v}</option>`).join('');
   if (prevD1 && d1Values.includes(prevD1)) d1Sel.value = prevD1;
