@@ -56,16 +56,8 @@ echo '-- 압축 해제...'
 tar -xzf /tmp/reqpilot.tar.gz -C /tmp
 
 echo '-- 기존 프로세스 종료...'
-if [ -f PIDFILE ]; then
-    kill $(cat PIDFILE) 2>/dev/null || true
-else
-    pkill -x reqpilot 2>/dev/null || true
-fi
+kill $(cat PIDFILE 2>/dev/null) 2>/dev/null || pkill -x reqpilot 2>/dev/null || true
 sleep 3
-if pgrep -x reqpilot > /dev/null 2>&1; then
-    pkill -9 -x reqpilot 2>/dev/null || true
-    sleep 1
-fi
 
 echo '-- 바이너리 교체...'
 cp -r /tmp/reqpilot/* REMOTEDIR/
@@ -78,7 +70,7 @@ echo $! > REMOTEDIR/reqpilot.pid
 sleep 3
 PID=$(cat REMOTEDIR/reqpilot.pid)
 if kill -0 $PID 2>/dev/null; then
-    echo "기동 성공 (PID: $PID)"
+    echo "Started OK (PID: $PID)"
 else
     echo '경고: 프로세스 즉시 종료 — nohup.out:'
     tail -20 REMOTEDIR/nohup.out
@@ -87,7 +79,7 @@ rm -f /tmp/reqpilot.tar.gz
 rm -rf /tmp/reqpilot
 '@ -replace 'REMOTEDIR', $RemoteDir -replace 'PIDFILE', "$RemoteDir/reqpilot.pid"
 
-& ssh -p $RemotePort $REMOTE $remoteScript
+$remoteScript -replace "`r`n", "`n" | & ssh -p $RemotePort $REMOTE "bash -s"
 if ($LASTEXITCODE -ne 0) { Write-Error "원격 재시작 실패"; exit 1 }
 
 Write-Host ""
