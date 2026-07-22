@@ -15,7 +15,8 @@
     .sidebar {
       width: var(--sidebar-w); min-height: 100vh;
       background: var(--sidebar-bg); position: fixed; top: 0; left: 0;
-      display: flex; flex-direction: column; z-index: 100;
+      display: flex; flex-direction: column; z-index: 1050;
+      transition: transform .28s cubic-bezier(.4,0,.2,1);
     }
     .sidebar-brand {
       padding: 18px 16px; color: #fff; font-weight: 700; font-size: .95rem;
@@ -35,6 +36,62 @@
     }
 
     .main-content { margin-left: var(--sidebar-w); padding: 28px 32px; min-height: 100vh; }
+
+    /* ── 모바일 공통 ── */
+    .sidebar-backdrop {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 1040;
+      opacity: 0; transition: opacity .28s;
+    }
+    .sidebar-backdrop.show { display: block; opacity: 1; }
+
+    .mobile-topbar {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0; height: 52px;
+      background: var(--sidebar-bg); color: #fff; z-index: 1000;
+      align-items: center; padding: 0 16px; gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18);
+    }
+    .mobile-topbar .topbar-title { font-weight: 700; font-size: .92rem; flex: 1; }
+    .mobile-topbar .btn-menu {
+      background: none; border: none; color: #fff;
+      font-size: 1.35rem; padding: 4px 6px; line-height: 1;
+    }
+
+    .mobile-bottom-nav {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 58px; background: #fff;
+      border-top: 1px solid #e2e8f0; z-index: 1000;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .mobile-bottom-nav .bnav-inner {
+      display: flex; height: 100%; align-items: stretch;
+    }
+    .mobile-bottom-nav a {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 2px; color: #94a3b8; text-decoration: none;
+      font-size: .62rem; font-weight: 600;
+      transition: color .15s;
+    }
+    .mobile-bottom-nav a i { font-size: 1.2rem; }
+    .mobile-bottom-nav a.active { color: var(--accent); }
+    .mobile-bottom-nav a:hover { color: #475569; }
+
+    @media (max-width: 767.98px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.mobile-open { transform: translateX(0); }
+      .main-content {
+        margin-left: 0; padding: 14px 14px 80px;
+        margin-top: 52px;
+      }
+      .mobile-topbar { display: flex; }
+      .mobile-bottom-nav { display: block; }
+      body.pdf-open .main-content { margin-right: 0; }
+      .pdf-viewer-panel { width: 100%; }
+      .table-responsive-mobile { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
 
     .card { border: none; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
     .card-header { background: #fff; border-bottom: 1px solid #e2e8f0; font-weight: 600; border-radius: 12px 12px 0 0 !important; }
@@ -131,7 +188,22 @@
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-<div class="sidebar">
+
+<!-- 모바일 탑바 -->
+<div class="mobile-topbar" id="mobileTopbar">
+  <button class="btn-menu" onclick="toggleSidebar()">
+    <i class="bi bi-list"></i>
+  </button>
+  <span class="topbar-title">업무 관리 시스템</span>
+  <a href="/chat" style="color:#fff; font-size:1.1rem; padding:4px 6px">
+    <i class="bi bi-stars"></i>
+  </a>
+</div>
+
+<!-- 사이드바 백드롭 -->
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
+
+<div class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <i class="bi bi-grid-3x3-gap-fill"></i> 업무 관리 시스템
   </div>
@@ -192,6 +264,29 @@
   {% block content %}{% endblock %}
 </div>
 
+<!-- 모바일 하단 네비게이션 -->
+<nav class="mobile-bottom-nav">
+  <div class="bnav-inner">
+    <a href="/" class="{% if request.endpoint == 'index' %}active{% endif %}">
+      <i class="bi bi-grid-3x3-gap"></i><span>홈</span>
+    </a>
+    {% if is_local_user %}
+    <a href="/todos" class="{% if request.endpoint == 'todos_page' %}active{% endif %}">
+      <i class="bi bi-check2-square"></i><span>할일</span>
+    </a>
+    <a href="/worklog" class="{% if request.endpoint == 'worklog_page' %}active{% endif %}">
+      <i class="bi bi-journal-text"></i><span>일지</span>
+    </a>
+    <a href="/chat" class="{% if request.endpoint == 'chat_page' %}active{% endif %}">
+      <i class="bi bi-stars"></i><span>AI</span>
+    </a>
+    {% endif %}
+    <a href="/search" class="{% if request.endpoint == 'search_page' %}active{% endif %}">
+      <i class="bi bi-search"></i><span>검색</span>
+    </a>
+  </div>
+</nav>
+
 <!-- PDF Viewer Panel -->
 <div class="pdf-viewer-panel" id="pdfPanel">
   <div class="panel-header">
@@ -207,6 +302,14 @@
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
+function toggleSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const isOpen   = sidebar.classList.toggle('mobile-open');
+  backdrop.classList.toggle('show', isOpen);
+  document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
 function openPdfPanel(pdfId, name) {
   document.getElementById('pdfFrame').src = `/api/pdf/${pdfId}/file`;
   document.getElementById('pdfPanelTitle').innerHTML =

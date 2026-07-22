@@ -94,6 +94,7 @@ async function doSearch() {
           <span class="badge bg-secondary ms-auto">${group.requirements.length}건</span>
         </div>
         <div class="card-body p-0">
+          <div class="table-responsive-mobile">
           <table class="table table-hover mb-0">
             <thead>
               <tr>
@@ -111,7 +112,7 @@ async function doSearch() {
         <td style="font-size:.82rem">${highlight(detailSnippet, q)}</td>
       </tr>`;
     }
-    html += '</tbody></table></div></div>';
+    html += '</tbody></table></div></div></div>';
   }
 
   area.innerHTML = html;
