@@ -56,8 +56,16 @@ echo '-- 압축 해제...'
 tar -xzf /tmp/reqpilot.tar.gz -C /tmp
 
 echo '-- 기존 프로세스 종료...'
-kill $(cat PIDFILE 2>/dev/null) 2>/dev/null || true
-sleep 2
+if [ -f PIDFILE ]; then
+    kill $(cat PIDFILE) 2>/dev/null || true
+else
+    pkill -x reqpilot 2>/dev/null || true
+fi
+sleep 3
+if pgrep -x reqpilot > /dev/null 2>&1; then
+    pkill -9 -x reqpilot 2>/dev/null || true
+    sleep 1
+fi
 
 echo '-- 바이너리 교체...'
 cp -r /tmp/reqpilot/* REMOTEDIR/
