@@ -922,6 +922,24 @@ function updateProposalPptCount() {
              btn.classList.toggle('btn-outline-secondary', total === 0);
 }
 
+async function openPptAttachOrphan(depth1) {
+  // 고아 섹션: DB에 depth1 헤더 항목이 없으므로 자동 생성 후 첨부 모달 오픈
+  const existing = allToc.find(t => t.depth1 === depth1 && !t.depth2 && !t.depth3);
+  if (existing) {
+    openPptAttach(existing.id);
+    return;
+  }
+  const res = await fetch(`/api/pdf/${PDF_ID}/toc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ depth1 }),
+  });
+  if (!res.ok) { alert('헤더 항목 생성에 실패했습니다.'); return; }
+  const data = await res.json();
+  await loadToc();
+  openPptAttach(data.id);
+}
+
 async function openPptAttach(tid) {
   _pptTid = tid;
   const toc = allToc.find(t => t.id === tid);
@@ -1440,6 +1458,7 @@ function renderTocTree() {
         <span ${hasKids?`onclick="toggleTocSection(${si})" style="cursor:pointer;display:inline-flex;align-items:center"`:'style="display:inline-flex;align-items:center"'}>${chevron}${folderIcon}</span>
         <span class="fw-semibold flex-grow-1 ms-1 text-secondary">${esc(sec.depth1)}</span>
         ${depth3Count > 0 ? `<span class="badge bg-secondary" style="font-size:.7rem">${depth3Count}</span>` : ''}
+        ${(() => { const hdr = allToc.find(t => t.depth1 === sec.depth1 && !t.depth2 && !t.depth3); const cnt = hdr ? hdr.ppt_count : 0; return `<button class="btn btn-outline-success btn-icon ms-1 toc-ppt-btn" title="PPT 첨부" onclick="event.stopPropagation();openPptAttachOrphan(${JSON.stringify(sec.depth1)})"><i class="bi bi-paperclip"></i>${cnt > 0 ? `<span class="badge bg-success ms-1" style="font-size:.65rem">${cnt}</span>` : ''}</button>`; })()}
       </div>`;
     }
 

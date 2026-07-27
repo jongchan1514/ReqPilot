@@ -1424,7 +1424,7 @@ def api_toc_ppt_list(tid):
 
 @app.route('/api/toc/<int:tid>/ppt', methods=['POST'])
 def api_toc_ppt_upload(tid):
-    """목차 항목에 PPT 파일 첨부"""
+    """목차 항목에 PPT 파일 첨부 (기존 파일 교체)"""
     toc = db.get_or_404(TOCItem, tid)
     f = request.files.get('file')
     if not f or not f.filename:
@@ -1433,16 +1433,24 @@ def api_toc_ppt_upload(tid):
     if ext not in ('.ppt', '.pptx'):
         return jsonify({'error': 'PPT/PPTX 파일만 첨부할 수 있습니다.'}), 400
 
+    # 기존 첨부 파일 삭제 (교체 방식)
+    existing = TocPptAttachment.query.filter_by(toc_item_id=tid).all()
+    for e in existing:
+        try:
+            os.remove(os.path.join(TOC_PPT_DIR, e.saved_filename))
+        except OSError:
+            pass
+        db.session.delete(e)
+
     saved = f'{uuid.uuid4().hex}{ext}'
     f.save(os.path.join(TOC_PPT_DIR, saved))
 
-    current_max = db.session.query(db.func.max(TocPptAttachment.sort_order)).filter_by(toc_item_id=tid).scalar() or 0
     att = TocPptAttachment(
         toc_item_id=tid,
         pdf_id=toc.pdf_id,
         original_name=f.filename,
         saved_filename=saved,
-        sort_order=current_max + 1,
+        sort_order=0,
     )
     db.session.add(att)
     db.session.commit()
