@@ -39,6 +39,10 @@
     <button class="btn btn-outline-success btn-sm" onclick="downloadReqExcel()" title="요구사항/목차 Excel 다운로드">
       <i class="bi bi-file-earmark-excel me-1"></i>Excel
     </button>
+    <button class="btn btn-primary btn-sm" id="btn-proposal-download" onclick="downloadProposal()" title="첨부 PPT를 목차 순서로 병합 다운로드">
+      <i class="bi bi-file-earmark-ppt me-1"></i>제안서 다운로드
+      <span id="proposal-ppt-count" class="badge bg-white text-primary ms-1" style="font-size:.7rem;display:none">0</span>
+    </button>
   </div>
 </div>
 
@@ -484,6 +488,29 @@
 </div>
 
 <!-- TOC Modal -->
+<!-- PPT 첨부 모달 -->
+<div class="modal fade" id="pptAttachModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-paperclip me-2 text-success"></i>PPT 첨부 — <span id="ppt-attach-label" class="text-muted fw-normal"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <ul class="list-group list-group-flush mb-3" id="ppt-attach-list">
+          <li class="list-group-item text-muted small">첨부된 파일이 없습니다.</li>
+        </ul>
+        <div class="d-flex gap-2">
+          <input type="file" id="ppt-file-input" class="form-control form-control-sm" accept=".ppt,.pptx" multiple>
+          <button id="btn-ppt-upload" class="btn btn-success btn-sm flex-shrink-0" onclick="uploadPptFile()">
+            <i class="bi bi-upload me-1"></i>업로드
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="tocModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -882,6 +909,103 @@ document.getElementById('btn-req-save').addEventListener('click', async () => {
 function downloadReqExcel() {
   window.location.href = `/api/pdf/${PDF_ID}/export/excel`;
 }
+
+// ── 제안서 PPT 첨부 / 다운로드 ───────────────────────────────────────────────
+let _pptTid = null;
+
+function updateProposalPptCount() {
+  const total = allToc.reduce((s, t) => s + (t.ppt_count || 0), 0);
+  const badge = document.getElementById('proposal-ppt-count');
+  const btn   = document.getElementById('btn-proposal-download');
+  if (badge) { badge.textContent = total; badge.style.display = total > 0 ? '' : 'none'; }
+  if (btn)   btn.classList.toggle('btn-primary', total > 0),
+             btn.classList.toggle('btn-outline-secondary', total === 0);
+}
+
+async function openPptAttach(tid) {
+  _pptTid = tid;
+  const toc = allToc.find(t => t.id === tid);
+  const label = [toc?.depth1, toc?.depth2, toc?.depth3].filter(Boolean).join(' > ');
+  document.getElementById('ppt-attach-label').textContent = label || `항목 #${tid}`;
+  await refreshPptAttachList();
+  new bootstrap.Modal(document.getElementById('pptAttachModal')).show();
+}
+
+async function refreshPptAttachList() {
+  const res  = await fetch(`/api/toc/${_pptTid}/ppt`);
+  const list = await res.json();
+  const ul   = document.getElementById('ppt-attach-list');
+  if (!list.length) {
+    ul.innerHTML = '<li class="list-group-item text-muted small">첨부된 파일이 없습니다.</li>';
+    return;
+  }
+  ul.innerHTML = list.map(a => `
+    <li class="list-group-item d-flex align-items-center gap-2 py-1 px-2">
+      <i class="bi bi-file-earmark-ppt text-danger"></i>
+      <span class="flex-grow-1 small text-truncate" title="${escHtml(a.original_name)}">${escHtml(a.original_name)}</span>
+      <span class="text-muted" style="font-size:.75rem">${a.uploaded_at}</span>
+      <button class="btn btn-outline-danger btn-icon btn-sm" onclick="deletePptAttach(${a.id})"><i class="bi bi-trash"></i></button>
+    </li>`).join('');
+}
+
+async function uploadPptFile() {
+  const input = document.getElementById('ppt-file-input');
+  if (!input.files.length) return;
+  const btn = document.getElementById('btn-ppt-upload');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업로드 중...';
+  try {
+    for (const file of input.files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/toc/${_pptTid}/ppt`, { method: 'POST', body: fd });
+      if (!res.ok) { const e = await res.json(); alert(e.error || '업로드 실패'); return; }
+    }
+    input.value = '';
+    // 로컬 카운트 갱신
+    const t = allToc.find(x => x.id === _pptTid);
+    if (t) { const res2 = await fetch(`/api/toc/${_pptTid}/ppt`); t.ppt_count = (await res2.json()).length; }
+    await refreshPptAttachList();
+    renderTocTree();
+    updateProposalPptCount();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-upload me-1"></i>업로드';
+  }
+}
+
+async function deletePptAttach(aid) {
+  if (!confirm('이 PPT 첨부를 삭제하시겠습니까?')) return;
+  await fetch(`/api/toc/ppt/${aid}`, { method: 'DELETE' });
+  const res = await fetch(`/api/toc/${_pptTid}/ppt`);
+  const list = await res.json();
+  const t = allToc.find(x => x.id === _pptTid);
+  if (t) t.ppt_count = list.length;
+  // 목록 갱신 (이미 최신 list를 가져왔으므로 직접 렌더)
+  const ul = document.getElementById('ppt-attach-list');
+  if (ul) {
+    if (!list.length) {
+      ul.innerHTML = '<li class="list-group-item text-muted small">첨부된 파일이 없습니다.</li>';
+    } else {
+      ul.innerHTML = list.map(a => `
+        <li class="list-group-item d-flex align-items-center gap-2 py-1 px-2">
+          <i class="bi bi-file-earmark-ppt text-danger"></i>
+          <span class="flex-grow-1 small text-truncate" title="${escHtml(a.original_name)}">${escHtml(a.original_name)}</span>
+          <span class="text-muted" style="font-size:.75rem">${a.uploaded_at}</span>
+          <button class="btn btn-outline-danger btn-icon btn-sm" onclick="deletePptAttach(${a.id})"><i class="bi bi-trash"></i></button>
+        </li>`).join('');
+    }
+  }
+  renderTocTree();
+  updateProposalPptCount();
+}
+
+async function downloadProposal() {
+  const total = allToc.reduce((s, t) => s + (t.ppt_count || 0), 0);
+  if (!total) { alert('첨부된 PPT 파일이 없습니다.\n목차 항목의 📎 버튼으로 PPT를 첨부하세요.'); return; }
+  window.location.href = `/api/pdf/${PDF_ID}/proposal-download`;
+}
+
 async function deleteReq(id) {
   if (!confirm('이 요구사항을 삭제하시겠습니까?')) return;
   await fetch(`/api/requirements/${id}`, {method:'DELETE'});
@@ -1119,6 +1243,7 @@ async function loadToc() {
   allToc = await res.json();
   renderTocTree();
   updateQaParentSelectors();
+  updateProposalPptCount();
 }
 
 function buildTocSections() {
@@ -1301,6 +1426,9 @@ function renderTocTree() {
         ${tags ? `<span>${tags}</span>` : ''}
         ${depth3Count > 0 ? `<span class="badge bg-secondary ms-1" style="font-size:.7rem">${depth3Count}</span>` : ''}
         <span class="text-muted small ms-2">${t.page_number ? `p.${esc(t.page_number)}` : ''}</span>
+        <button class="btn btn-outline-success btn-icon ms-1 toc-ppt-btn" title="PPT 첨부" onclick="event.stopPropagation();openPptAttach(${t.id})" data-tid="${t.id}">
+          <i class="bi bi-paperclip"></i>${t.ppt_count > 0 ? `<span class="badge bg-success ms-1" style="font-size:.65rem">${t.ppt_count}</span>` : ''}
+        </button>
         <button class="btn btn-outline-primary btn-icon ms-1" title="상세 편집" onclick="event.stopPropagation();openTocEdit(${t.id})"><i class="bi bi-pencil"></i></button>
         <button class="btn btn-outline-danger btn-icon ms-1" onclick="event.stopPropagation();deleteToc(${t.id})"><i class="bi bi-trash"></i></button>
       </div>`;
@@ -1336,6 +1464,9 @@ function renderTocTree() {
           </div>
           <span class="text-muted small me-1 flex-shrink-0">${t.page_number ? `p.${esc(t.page_number)}` : ''}</span>
           ${level === 3 ? `<span class="status-badge ${STATUS_CLS[t.work_status]||'badge-신규'} me-1 flex-shrink-0">${esc(t.work_status)}</span>` : ''}
+          <button class="btn btn-outline-success btn-icon me-1 flex-shrink-0 toc-ppt-btn" title="PPT 첨부" onclick="openPptAttach(${t.id})" data-tid="${t.id}">
+            <i class="bi bi-paperclip"></i>${t.ppt_count > 0 ? `<span class="badge bg-success ms-1" style="font-size:.65rem">${t.ppt_count}</span>` : ''}
+          </button>
           <button class="btn btn-outline-primary btn-icon me-1 flex-shrink-0" title="상세 편집" onclick="openTocEdit(${t.id})"><i class="bi bi-pencil"></i></button>
           <button class="btn btn-outline-danger btn-icon flex-shrink-0" onclick="deleteToc(${t.id})"><i class="bi bi-trash"></i></button>
         </div>

@@ -13,7 +13,7 @@ from flask import (Flask, render_template, request, jsonify, g,
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 from sqlalchemy import or_, text
-from models import db, Project, PdfDocument, Requirement, TOCItem, BusinessInfo, ReqTypeRule, ProjectAttachment, ATTACHMENT_SLOTS, ProjectFileAttachment, PROJECT_FILE_CATEGORIES, ProposalAnalysis, RequirementProposalImage, toc_requirement, TodoItem, WorkLog, VectorChunk
+from models import db, Project, PdfDocument, Requirement, TOCItem, BusinessInfo, ReqTypeRule, ProjectAttachment, ATTACHMENT_SLOTS, ProjectFileAttachment, PROJECT_FILE_CATEGORIES, ProposalAnalysis, RequirementProposalImage, toc_requirement, TodoItem, WorkLog, VectorChunk, TocPptAttachment
 from gemini_service import extract_all
 from proposal_image_service import ProposalImageDependencyError, render_requirement_proposal_image
 from dotenv import load_dotenv
@@ -182,11 +182,13 @@ def logout_page():
 ATTACH_DIR = os.path.join(_BASE_DIR, 'uploads', 'attachments')
 GENERATED_DIR = os.path.join(_BASE_DIR, 'uploads', 'generated')
 PROJECT_FILE_DIR = os.path.join(_BASE_DIR, 'uploads', 'project_files')
+TOC_PPT_DIR = os.path.join(_BASE_DIR, 'uploads', 'toc_ppt')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(SAVED_DIR, exist_ok=True)
 os.makedirs(ATTACH_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 os.makedirs(PROJECT_FILE_DIR, exist_ok=True)
+os.makedirs(TOC_PPT_DIR, exist_ok=True)
 
 db.init_app(app)
 
@@ -281,6 +283,15 @@ def _migrate(conn):
         "ALTER TABLE requirement ADD COLUMN status VARCHAR(20) DEFAULT '신규'",
         "ALTER TABLE requirement ADD COLUMN priority VARCHAR(20) DEFAULT '보통'",
         "ALTER TABLE requirement ADD COLUMN note TEXT",
+        """CREATE TABLE IF NOT EXISTS toc_ppt_attachment (
+            id INTEGER PRIMARY KEY,
+            toc_item_id INTEGER NOT NULL REFERENCES toc_item(id) ON DELETE CASCADE,
+            pdf_id INTEGER NOT NULL REFERENCES pdf_document(id) ON DELETE CASCADE,
+            original_name VARCHAR(500) NOT NULL,
+            saved_filename VARCHAR(500) NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            uploaded_at DATETIME
+        )""",
     ]
     for sql in migrations:
         try:
@@ -1399,6 +1410,114 @@ def api_toc_normalize(pdf_id):
 
     db.session.commit()
     return jsonify({'success': True})
+
+
+# ── TOC PPT 첨부 API ──────────────────────────────────────────────────────────
+
+@app.route('/api/toc/<int:tid>/ppt', methods=['GET'])
+def api_toc_ppt_list(tid):
+    """목차 항목의 PPT 첨부 목록 조회"""
+    db.get_or_404(TOCItem, tid)
+    atts = TocPptAttachment.query.filter_by(toc_item_id=tid).order_by(TocPptAttachment.sort_order).all()
+    return jsonify([a.to_dict() for a in atts])
+
+
+@app.route('/api/toc/<int:tid>/ppt', methods=['POST'])
+def api_toc_ppt_upload(tid):
+    """목차 항목에 PPT 파일 첨부"""
+    toc = db.get_or_404(TOCItem, tid)
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': '파일이 없습니다.'}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in ('.ppt', '.pptx'):
+        return jsonify({'error': 'PPT/PPTX 파일만 첨부할 수 있습니다.'}), 400
+
+    saved = f'{uuid.uuid4().hex}{ext}'
+    f.save(os.path.join(TOC_PPT_DIR, saved))
+
+    current_max = db.session.query(db.func.max(TocPptAttachment.sort_order)).filter_by(toc_item_id=tid).scalar() or 0
+    att = TocPptAttachment(
+        toc_item_id=tid,
+        pdf_id=toc.pdf_id,
+        original_name=f.filename,
+        saved_filename=saved,
+        sort_order=current_max + 1,
+    )
+    db.session.add(att)
+    db.session.commit()
+    return jsonify(att.to_dict()), 201
+
+
+@app.route('/api/toc/ppt/<int:aid>', methods=['DELETE'])
+def api_toc_ppt_delete(aid):
+    """PPT 첨부 삭제"""
+    att = db.get_or_404(TocPptAttachment, aid)
+    path = os.path.join(TOC_PPT_DIR, att.saved_filename)
+    db.session.delete(att)
+    db.session.commit()
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return jsonify({'success': True})
+
+
+def _merge_pptx_files(file_paths):
+    """여러 PPTX 파일을 목차 순서대로 병합해 Presentation 객체 반환."""
+    from pptx import Presentation
+    import copy
+
+    if not file_paths:
+        return None
+
+    merged = Presentation(file_paths[0])
+    for path in file_paths[1:]:
+        src = Presentation(path)
+        for slide in src.slides:
+            blank = merged.slide_layouts[6]
+            new_slide = merged.slides.add_slide(blank)
+            sp_tree = new_slide.shapes._spTree
+            for child in list(sp_tree)[2:]:
+                sp_tree.remove(child)
+            for shape in slide.shapes:
+                sp_tree.append(copy.deepcopy(shape._element))
+    return merged
+
+
+@app.route('/api/pdf/<int:pdf_id>/proposal-download')
+def api_proposal_download(pdf_id):
+    """목차 순서대로 PPT 첨부파일을 병합해 PPTX 다운로드"""
+    pdf = db.get_or_404(PdfDocument, pdf_id)
+    toc_items = TOCItem.query.filter_by(pdf_id=pdf_id).order_by(TOCItem.order_index, TOCItem.id).all()
+
+    file_paths = []
+    for toc in toc_items:
+        atts = TocPptAttachment.query.filter_by(toc_item_id=toc.id).order_by(TocPptAttachment.sort_order).all()
+        for att in atts:
+            p = os.path.join(TOC_PPT_DIR, att.saved_filename)
+            if os.path.exists(p):
+                file_paths.append(p)
+
+    if not file_paths:
+        return jsonify({'error': '첨부된 PPT 파일이 없습니다.'}), 404
+
+    merged = _merge_pptx_files(file_paths)
+    if merged is None:
+        return jsonify({'error': '파일 병합에 실패했습니다.'}), 500
+
+    import io
+    buf = io.BytesIO()
+    merged.save(buf)
+    buf.seek(0)
+
+    safe_name = secure_filename(os.path.splitext(pdf.original_name)[0] or 'proposal')
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        as_attachment=True,
+        download_name=f'{safe_name}_제안서.pptx',
+    )
 
 
 # ── Matrix API ────────────────────────────────────────────────────────────────

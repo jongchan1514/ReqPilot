@@ -51,6 +51,12 @@ hiddenimports = [
     'openpyxl',
     'openpyxl.styles',
     'openpyxl.utils',
+    # python-pptx
+    'pptx',
+    'pptx.util',
+    'pptx.enum.text',
+    'lxml',
+    'lxml.etree',
     # google
     'google.auth',
     'google.auth.transport',

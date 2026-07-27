@@ -8,3 +8,4 @@ numpy==2.4.6
 sentence-transformers==2.5.1
 Pillow==10.4.0
 psycopg2-binary>=2.9.9
+python-pptx>=1.0.0

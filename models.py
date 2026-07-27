@@ -349,6 +349,8 @@ class TOCItem(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     pdf = db.relationship('PdfDocument', back_populates='toc_items')
     requirements = db.relationship('Requirement', secondary=toc_requirement, lazy='subquery')
+    ppt_attachments = db.relationship('TocPptAttachment', back_populates='toc_item',
+                                      cascade='all, delete-orphan', order_by='TocPptAttachment.sort_order')
 
     def to_dict(self):
         return {
@@ -363,4 +365,28 @@ class TOCItem(db.Model):
             'order_index': self.order_index,
             'requirement_ids': [r.id for r in self.requirements],
             'requirement_labels': [r.req_id for r in self.requirements],
+            'ppt_count': len(self.ppt_attachments),
+        }
+
+
+class TocPptAttachment(db.Model):
+    """목차 항목별 PPT 첨부파일 — 목차 순서대로 병합해 제안서 PPTX 생성에 사용"""
+    __tablename__ = 'toc_ppt_attachment'
+    id = db.Column(db.Integer, primary_key=True)
+    toc_item_id = db.Column(db.Integer, db.ForeignKey('toc_item.id', ondelete='CASCADE'), nullable=False)
+    pdf_id = db.Column(db.Integer, db.ForeignKey('pdf_document.id', ondelete='CASCADE'), nullable=False)
+    original_name = db.Column(db.String(500), nullable=False)
+    saved_filename = db.Column(db.String(500), nullable=False)
+    sort_order = db.Column(db.Integer, default=0)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    toc_item = db.relationship('TOCItem', back_populates='ppt_attachments')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'toc_item_id': self.toc_item_id,
+            'pdf_id': self.pdf_id,
+            'original_name': self.original_name,
+            'sort_order': self.sort_order,
+            'uploaded_at': self.uploaded_at.strftime('%Y-%m-%d %H:%M') if self.uploaded_at else '',
         }
