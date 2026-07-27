@@ -316,6 +316,7 @@ class VectorChunk(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     source_type = db.Column(db.String(50), nullable=False)   # requirement/toc/worklog/todo/business_info
     source_id   = db.Column(db.Integer, nullable=False)
+    project_id  = db.Column(db.Integer, db.ForeignKey('project.id', ondelete='SET NULL'), nullable=True)
     chunk_text  = db.Column(db.Text, nullable=False)
     source_url  = db.Column(db.String(500))                  # 바로가기 URL
     source_label= db.Column(db.String(500))                  # 표시 제목

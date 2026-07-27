@@ -248,6 +248,7 @@ def build_chunks() -> list[dict]:
                 base = {
                     'source_type':  'requirement',
                     'source_id':    r.id,
+                    'project_id':   proj.id,
                     'source_url':   f'/project/{proj.id}/pdf/{pdf.id}',
                     'source_label': f"{proj.name} > {r.req_id} {r.req_name}",
                     'source_date':  r.created_at,
@@ -271,6 +272,7 @@ def build_chunks() -> list[dict]:
                 chunks.append({
                     'source_type':  'toc',
                     'source_id':    t.id,
+                    'project_id':   proj.id,
                     'chunk_text':   text,
                     'source_url':   f'/project/{proj.id}/pdf/{pdf.id}',
                     'source_label': f"{proj.name} > {path}",
@@ -290,12 +292,12 @@ def build_chunks() -> list[dict]:
         base = {
             'source_type':  'worklog',
             'source_id':    log.id,
+            'project_id':   None,
             'source_url':   f'/worklog?id={log.id}',
             'source_label': f"작업일지: {log.title} ({date_str})",
             'source_date':  log.created_at,
         }
         if content:
-            # 헤더 + 내용을 분할 (헤더는 각 서브청크에 반복)
             sub_parts = _split_text(content)
             if len(sub_parts) == 1:
                 chunks.append({**base, 'chunk_text': f"{header}\n내용: {sub_parts[0]}"})
@@ -317,6 +319,7 @@ def build_chunks() -> list[dict]:
         chunks.append({
             'source_type':  'todo',
             'source_id':    todo.id,
+            'project_id':   None,
             'chunk_text':   text,
             'source_url':   '/todos',
             'source_label': f"할일: {todo.title}",
@@ -352,6 +355,7 @@ def sync_vectors(api_key: str = '', progress_cb=None):
             vc  = VectorChunk(
                 source_type  = c['source_type'],
                 source_id    = c['source_id'],
+                project_id   = c.get('project_id'),
                 chunk_text   = c['chunk_text'],
                 source_url   = c['source_url'],
                 source_label = c['source_label'],
@@ -506,14 +510,23 @@ def _chunk_date(c) -> datetime | None:
     return getattr(c, 'source_date', None)
 
 
-def search(query: str, api_key: str = '', top_k: int = TOP_K) -> list[dict]:
+def search(query: str, api_key: str = '', top_k: int = TOP_K,
+           project_id: int | None = None, source_types: set | None = None) -> list[dict]:
     """질문과 유사한 청크를 상위 top_k개 반환.
-    - 소스 타입 키워드가 있으면 해당 타입 강제 포함
-    - 날짜 표현이 있으면 date 필터링/최신순 정렬 적용
+    - project_id: 해당 프로젝트 청크만 검색 (None이면 전체)
+    - source_types: 포함할 source_type 집합 (None이면 전체)
     """
     from models import VectorChunk
 
-    chunks = VectorChunk.query.filter(VectorChunk.embedding.isnot(None)).all()
+    q = VectorChunk.query.filter(VectorChunk.embedding.isnot(None))
+    if project_id is not None:
+        # 해당 프로젝트 청크 + 프로젝트 무관 청크(worklog/todo) 포함
+        q = q.filter(
+            (VectorChunk.project_id == project_id) | (VectorChunk.project_id.is_(None))
+        )
+    if source_types:
+        q = q.filter(VectorChunk.source_type.in_(source_types))
+    chunks = q.all()
     if not chunks:
         return []
 
@@ -573,7 +586,8 @@ def search(query: str, api_key: str = '', top_k: int = TOP_K) -> list[dict]:
 
 # ── 답변 생성 ────────────────────────────────────────────────────────────────
 
-def answer(query: str, history: list[dict], api_key: str, use_local: bool = False, local_llm_url: str = None) -> dict:
+def answer(query: str, history: list[dict], api_key: str, use_local: bool = False, local_llm_url: str = None,
+           project_id: int | None = None, source_types: set | None = None) -> dict:
     """
     RAG 기반 답변 생성.
     history: [{'role': 'user'|'model', 'content': str}, ...]
@@ -587,7 +601,7 @@ def answer(query: str, history: list[dict], api_key: str, use_local: bool = Fals
         .replace('그제', (_today - timedelta(days=2)).isoformat()))
 
     # 1. 관련 청크 검색
-    relevant  = search(_search_query, api_key)
+    relevant  = search(_search_query, api_key, project_id=project_id, source_types=source_types)
     forced    = _forced_types(query)
 
     # 2. 컨텍스트 구성 — forced 타입 우선, 나머지는 보조

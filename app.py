@@ -283,6 +283,7 @@ def _migrate(conn):
         "ALTER TABLE requirement ADD COLUMN status VARCHAR(20) DEFAULT '신규'",
         "ALTER TABLE requirement ADD COLUMN priority VARCHAR(20) DEFAULT '보통'",
         "ALTER TABLE requirement ADD COLUMN note TEXT",
+        "ALTER TABLE vector_chunk ADD COLUMN project_id INTEGER REFERENCES project(id) ON DELETE SET NULL",
         """CREATE TABLE IF NOT EXISTS toc_ppt_attachment (
             id INTEGER PRIMARY KEY,
             toc_item_id INTEGER NOT NULL REFERENCES toc_item(id) ON DELETE CASCADE,
@@ -2499,23 +2500,35 @@ def api_chat_ask():
     if synced == 0:
         return jsonify({'error': '데이터 동기화가 필요합니다. 먼저 동기화를 실행하세요.'}), 400
 
+    project_id   = data.get('project_id') or None        # int or None
+    source_types = data.get('source_types') or None      # list[str] or None
+    if source_types is not None:
+        source_types = set(source_types)
+
     from rag_service import answer
     try:
         _local_llm_url = None
         if getattr(sys, 'frozen', False):
-            # PyInstaller 바이너리: Ollama 없으므로 항상 Gemini
             _use_local = False
         elif data.get('use_local') and _is_admin():
-            # 사용자가 로컬 LLM 요청 + 관리자 권한 → 클라이언트 PC의 Ollama 사용
             _use_local = True
             _local_llm_url = f"http://{request.remote_addr}:11434"
         else:
             _use_local = _is_local_request()
-        result = answer(query, history, GEMINI_API_KEY, use_local=_use_local, local_llm_url=_local_llm_url)
+        result = answer(query, history, GEMINI_API_KEY,
+                        use_local=_use_local, local_llm_url=_local_llm_url,
+                        project_id=project_id, source_types=source_types)
         return jsonify(result)
     except Exception as e:
         logger.error("RAG 답변 오류: %s", e)
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/projects')
+def api_chat_projects():
+    """채팅 프로젝트 필터용 목록"""
+    projects = Project.query.order_by(Project.created_at.desc()).all()
+    return jsonify([{'id': p.id, 'name': p.name} for p in projects])
 
 
 @app.route('/api/chat/status')
